@@ -16,7 +16,8 @@ const ADMIN_TOKEN_ALPHABET =
 
 const newRoomId = customAlphabet(ROOM_ID_ALPHABET, 6);
 const newAdminToken = customAlphabet(ADMIN_TOKEN_ALPHABET, 32);
-const REVEAL_RESULT_FALLBACK_MS = 12000;
+// Fallback only. The display normally advances this after the BGM-backed reveal lands.
+const REVEAL_RESULT_FALLBACK_MS = 20000;
 const TEAM_COLOR_PALETTE = [
   '#E84A4A',
   '#F39A3F',

@@ -1,8 +1,8 @@
 'use client';
 
-import { motion, useAnimation } from 'framer-motion';
-import { useEffect, useRef, useState } from 'react';
-import { playReveal } from '@/lib/sounds';
+import { motion } from 'framer-motion';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ANSWER_REVEAL_BGM_DURATION_MS, playAnswerRevealBgm, playReveal } from '@/lib/sounds';
 
 interface TeamAnswerMarker {
   teamName: string;
@@ -19,11 +19,14 @@ interface GaugeBarProps {
   onCorrectShown?: () => void;
 }
 
-// Animation tuning — slower, more suspenseful sweep.
-const SLIDE_DURATION_S = 2.6;
-const SPRING_STIFFNESS = 45;
-const SPRING_DAMPING = 9;
-const SPRING_MASS = 1.6;
+// Animation tuning — one smooth suspense sweep across the BGM, then a quick final lock.
+const BAR_START_AFTER_AUDIO_MS = 220;
+const ANSWER_REVEAL_EARLY_MS = 260;
+const SUSPENSE_SWEEP_DURATION_S = Math.max(
+  1,
+  (ANSWER_REVEAL_BGM_DURATION_MS - BAR_START_AFTER_AUDIO_MS - ANSWER_REVEAL_EARLY_MS) / 1000
+);
+const FINAL_LOCK_DURATION_S = 0.55;
 
 export function GaugeBar({
   correctAnswer,
@@ -31,51 +34,74 @@ export function GaugeBar({
   playKey,
   onCorrectShown,
 }: GaugeBarProps) {
-  const fillControls = useAnimation();
+  const target = Math.max(0, Math.min(100, correctAnswer));
   const [showCorrect, setShowCorrect] = useState(false);
+  const [suspenseActive, setSuspenseActive] = useState(false);
   const [currentLabel, setCurrentLabel] = useState(0);
-  const cancelled = useRef(false);
+  const playbackRunRef = useRef(0);
+  const fillRef = useRef<HTMLDivElement | null>(null);
   const onCorrectShownRef = useRef(onCorrectShown);
+  const suspenseSequence = useMemo(() => makeSuspenseSequence(target), [target]);
+  const barAnimate = useMemo(() => {
+    if (showCorrect) return { width: `${target}%` };
+    if (suspenseActive) return { width: suspenseSequence.widths };
+    return { width: '0%' };
+  }, [showCorrect, suspenseActive, suspenseSequence.widths, target]);
+  const barTransition = useMemo(() => {
+    if (showCorrect) {
+      return {
+        duration: FINAL_LOCK_DURATION_S,
+        ease: [0.16, 1, 0.3, 1],
+      };
+    }
+
+    if (suspenseActive) {
+      return {
+        duration: SUSPENSE_SWEEP_DURATION_S,
+        times: suspenseSequence.times,
+        ease: [0.18, 0.86, 0.2, 1],
+      };
+    }
+
+    return { duration: 0 };
+  }, [showCorrect, suspenseActive, suspenseSequence.times]);
 
   useEffect(() => {
     onCorrectShownRef.current = onCorrectShown;
   }, [onCorrectShown]);
 
   useEffect(() => {
-    cancelled.current = false;
-    setShowCorrect(false);
-    setCurrentLabel(0);
-    fillControls.set({ width: '0%' });
+    const runId = playbackRunRef.current + 1;
+    playbackRunRef.current = runId;
+    let active = true;
 
-    const target = Math.max(0, Math.min(100, correctAnswer));
-    const overshoot = Math.min(98, Math.max(target + 25, target * 1.8));
+    setShowCorrect(false);
+    setSuspenseActive(false);
+    setCurrentLabel(0);
+    const bgmPlayback = playAnswerRevealBgm();
 
     const updateLabel = (latest: number) => {
-      if (!cancelled.current) setCurrentLabel(Math.round(latest));
+      if (active && playbackRunRef.current === runId) setCurrentLabel(Math.round(latest));
     };
 
     const run = async () => {
-      // Phase A: push the existing fill bar past the answer — builds suspense
-      await fillControls.start({
-        width: `${overshoot}%`,
-        transition: { duration: SLIDE_DURATION_S, ease: [0.25, 0.46, 0.45, 0.94] },
-      });
-      if (cancelled.current) return;
+      const startReason = await bgmPlayback.started;
+      if (!active || playbackRunRef.current !== runId || startReason === 'stopped') return;
 
-      // Phase B: gentle spring back to the true answer
-      await fillControls.start({
-        width: `${target}%`,
-        transition: {
-          type: 'spring',
-          stiffness: SPRING_STIFFNESS,
-          damping: SPRING_DAMPING,
-          mass: SPRING_MASS,
-          restDelta: 0.05,
-        },
-      });
-      if (cancelled.current) return;
+      await wait(BAR_START_AFTER_AUDIO_MS);
+      if (!active || playbackRunRef.current !== runId) return;
+      setSuspenseActive(true);
 
-      // Phase C: lock in the red answer line + big number + sound
+      const revealReason = await Promise.race([
+        bgmPlayback.done,
+        wait(ANSWER_REVEAL_BGM_DURATION_MS - BAR_START_AFTER_AUDIO_MS - ANSWER_REVEAL_EARLY_MS).then(
+          () => 'early' as const
+        ),
+      ]);
+      if (!active || playbackRunRef.current !== runId || revealReason === 'stopped') return;
+
+      // Switching off the suspense sweep lets the same bar snap to the true answer.
+      setSuspenseActive(false);
       playReveal();
       setShowCorrect(true);
       onCorrectShownRef.current?.();
@@ -85,7 +111,7 @@ export function GaugeBar({
 
     // Live percent label sampled from the moving DOM node
     const interval = window.setInterval(() => {
-      const el = document.querySelector<HTMLElement>('[data-gauge-fill]');
+      const el = fillRef.current;
       if (!el) return;
       const parent = el.parentElement;
       if (!parent) return;
@@ -95,10 +121,11 @@ export function GaugeBar({
     }, 33);
 
     return () => {
-      cancelled.current = true;
+      active = false;
+      bgmPlayback.stop();
       window.clearInterval(interval);
     };
-  }, [correctAnswer, fillControls, playKey]);
+  }, [playKey, target]);
 
   return (
     <div className="w-full">
@@ -109,10 +136,12 @@ export function GaugeBar({
 
         {/* Gold "filled portion" — this is the moving reveal animation itself */}
         <motion.div
+          ref={fillRef}
           data-gauge-fill
           className="absolute inset-y-0 left-0 rounded-l-2xl gauge-fill"
-          initial={{ width: '0%' }}
-          animate={fillControls}
+          style={{ width: '0%' }}
+          animate={barAnimate}
+          transition={barTransition}
         />
 
         {/* Scale labels every 25% */}
@@ -217,4 +246,22 @@ export function GaugeBar({
       </div>
     </div>
   );
+}
+
+function makeSuspenseSequence(target: number): { widths: string[]; times: number[] } {
+  const finalGap = target < 30 ? 13 : target < 70 ? 10 : 6;
+  const preAnswer = target >= 98 ? 100 : clamp(target + finalGap, target + 4, 98);
+
+  return {
+    widths: ['0%', '100%', `${preAnswer}%`],
+    times: [0, 0.42, 1],
+  };
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }

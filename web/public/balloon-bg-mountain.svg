@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#126fc8"/>
+      <stop offset="0.44" stop-color="#76c6f0"/>
+      <stop offset="1" stop-color="#e5fbff"/>
+    </linearGradient>
+    <linearGradient id="mountain" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#9fb7c8"/>
+      <stop offset="1" stop-color="#4c778e"/>
+    </linearGradient>
+    <filter id="cloud" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8"/>
+    </filter>
+  </defs>
+  <rect width="1600" height="900" fill="url(#sky)"/>
+  <g fill="#fff" opacity="0.78" filter="url(#cloud)">
+    <ellipse cx="210" cy="160" rx="185" ry="58"/>
+    <ellipse cx="362" cy="170" rx="118" ry="38"/>
+    <ellipse cx="930" cy="140" rx="220" ry="70"/>
+    <ellipse cx="1110" cy="155" rx="150" ry="50"/>
+    <ellipse cx="1390" cy="255" rx="210" ry="58"/>
+  </g>
+  <path d="M0 735 180 525 330 650 510 440 700 680 910 360 1110 642 1300 485 1600 710v190H0Z" fill="#6c9ab1" opacity="0.78"/>
+  <path d="M0 785 235 610 420 720 610 560 820 780 1040 520 1240 725 1420 600 1600 755v145H0Z" fill="url(#mountain)" opacity="0.9"/>
+  <path d="M910 360 840 454 978 452ZM510 440 456 512 570 510ZM1300 485 1248 545 1355 545Z" fill="#f5fbff" opacity="0.82"/>
+  <rect y="760" width="1600" height="140" fill="#57b875" opacity="0.28"/>
+</svg>

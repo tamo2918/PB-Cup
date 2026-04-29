@@ -16,11 +16,14 @@ import { TeamCard } from '@/components/TeamCard';
 import { GaugeBar } from '@/components/GaugeBar';
 import { Confetti } from '@/components/Confetti';
 import { QRCard } from '@/components/QRCard';
+import { BalloonBurstShow } from '@/components/BalloonBurstShow';
 import { playGameOver, playPerfect, playPop, unlockAudio } from '@/lib/sounds';
 
 interface PoppingState {
   [teamName: string]: number[];
 }
+
+const ANSWER_HOLD_BEFORE_BURST_MS = 2200;
 
 export default function DisplayPage() {
   const params = useParams<{ roomId: string }>();
@@ -36,15 +39,46 @@ export default function DisplayPage() {
   const [gameOverTeams, setGameOverTeams] = useState<Set<string>>(new Set());
   const [confetti, setConfetti] = useState(false);
   const [revealKey, setRevealKey] = useState(0);
+  const [audioReady, setAudioReady] = useState(false);
 
   // Track displayed balloon counts (lags behind authoritative count for pop animations)
   const [displayBalloons, setDisplayBalloons] = useState<Record<string, number>>({});
 
   // Once the bar settles, we trigger pop animations.
   const [popAfterBar, setPopAfterBar] = useState(false);
+  const [burstActive, setBurstActive] = useState(false);
+  const [burstPlayKey, setBurstPlayKey] = useState(0);
+  const [burstResultsApplied, setBurstResultsApplied] = useState(false);
+  const burstActiveRef = useRef(false);
+  const burstResultsAppliedRef = useRef(false);
+  const burstDelayTimerRef = useRef<number | undefined>(undefined);
 
   // Track previous reveal so we don't replay on snapshots.
   const lastRevealKey = useRef<string>('');
+  const handledRevealLandedKey = useRef<string>('');
+
+  const clearBurstDelayTimer = useCallback(() => {
+    if (burstDelayTimerRef.current === undefined) return;
+    window.clearTimeout(burstDelayTimerRef.current);
+    burstDelayTimerRef.current = undefined;
+  }, []);
+
+  const setBurstRunning = useCallback((running: boolean) => {
+    if (!running) clearBurstDelayTimer();
+    burstActiveRef.current = running;
+    setBurstActive(running);
+  }, [clearBurstDelayTimer]);
+
+  const setBurstApplied = useCallback((applied: boolean) => {
+    burstResultsAppliedRef.current = applied;
+    setBurstResultsApplied(applied);
+  }, []);
+
+  const handleUnlockAudio = useCallback(() => {
+    void unlockAudio().then((ready) => {
+      if (ready) setAudioReady(true);
+    });
+  }, []);
 
   // Connect / display:join
   useEffect(() => {
@@ -54,8 +88,8 @@ export default function DisplayPage() {
         console.warn('display:join failed', res?.error);
       }
     });
-    void unlockAudio();
-  }, [socket, connected, roomId]);
+    handleUnlockAudio();
+  }, [socket, connected, roomId, handleUnlockAudio]);
 
   useEffect(() => {
     if (!socket) return;
@@ -76,6 +110,9 @@ export default function DisplayPage() {
         setGameOverTeams(new Set());
         setConfetti(false);
         setPopAfterBar(false);
+        setBurstRunning(false);
+        setBurstApplied(false);
+        handledRevealLandedKey.current = '';
         // align display balloons to authoritative
         const fresh: Record<string, number> = {};
         for (const t of snap.teams) fresh[t.name] = t.balloons;
@@ -83,7 +120,9 @@ export default function DisplayPage() {
       }
       if (snap.phase === 'result' && snap.reveal) {
         setReveal((current) => current ?? snap.reveal ?? null);
-        setPopAfterBar(true);
+        if (!burstActiveRef.current && !burstResultsAppliedRef.current) {
+          setPopAfterBar(true);
+        }
       }
       if (snap.phase === 'finished') {
         setRanking(snap.ranking ?? []);
@@ -97,14 +136,20 @@ export default function DisplayPage() {
       setGameOverTeams(new Set());
       setConfetti(false);
       setPopAfterBar(false);
+      setBurstRunning(false);
+      setBurstApplied(false);
+      handledRevealLandedKey.current = '';
     };
     const onReveal = (r: RevealPayload) => {
       const key = `${r.questionIndex}-${r.correctAnswer}-${r.results.length}`;
       if (lastRevealKey.current === key) return; // dedupe
       lastRevealKey.current = key;
+      handledRevealLandedKey.current = '';
       setReveal(r);
       setRevealKey((k) => k + 1);
       setPopAfterBar(false);
+      setBurstRunning(false);
+      setBurstApplied(false);
     };
     const onEnd = (p: { ranking: RankingEntry[] }) => setRanking(p.ranking);
     socket.on('room:updated', onRoom);
@@ -117,14 +162,14 @@ export default function DisplayPage() {
       socket.off('game:reveal', onReveal);
       socket.off('game:end', onEnd);
     };
-  }, [socket]);
+  }, [socket, setBurstApplied, setBurstRunning]);
 
   // After the gauge "thump" lands, run pop animations team-by-team.
   // We deliberately depend on (reveal, popAfterBar) only — re-running this
   // effect mid-animation (because `displayBalloons` ticks down) would
   // restart every team's pop sequence.
   useEffect(() => {
-    if (!reveal || !popAfterBar) return;
+    if (!reveal || !popAfterBar || burstResultsApplied) return;
     let cancelled = false;
 
     const runForTeam = async (res: AnswerResult, baseDelay: number) => {
@@ -196,7 +241,7 @@ export default function DisplayPage() {
       cancelled = true;
       if (confettiTimeout) window.clearTimeout(confettiTimeout);
     };
-  }, [reveal, popAfterBar]);
+  }, [reveal, popAfterBar, burstResultsApplied]);
 
   const phase = snapshot?.phase;
   const teams = snapshot?.teams ?? [];
@@ -218,14 +263,72 @@ export default function DisplayPage() {
   );
 
   const handleRevealLanded = useCallback(() => {
-    if (socket && reveal) {
+    if (!reveal) {
+      setPopAfterBar(true);
+      return;
+    }
+
+    const revealLandedKey = `${reveal.questionIndex}-${reveal.correctAnswer}-${reveal.results.length}`;
+    if (handledRevealLandedKey.current === revealLandedKey) return;
+    handledRevealLandedKey.current = revealLandedKey;
+
+    clearBurstDelayTimer();
+    if (reveal.results.length > 0) {
+      setBurstApplied(false);
+      // Block result cards while the answer remains on screen for readability.
+      burstActiveRef.current = true;
+      setBurstActive(false);
+      burstDelayTimerRef.current = window.setTimeout(() => {
+        burstDelayTimerRef.current = undefined;
+        setBurstActive(true);
+        setBurstPlayKey((key) => key + 1);
+      }, ANSWER_HOLD_BEFORE_BURST_MS);
+    } else {
+      setPopAfterBar(true);
+    }
+    if (socket) {
       socket.emit('display:reveal_complete', {
         roomId,
         questionIndex: reveal.questionIndex,
       });
     }
+  }, [clearBurstDelayTimer, setBurstApplied, socket, reveal, roomId]);
+
+  const handleBurstPop = useCallback((teamName: string, remaining: number) => {
+    setDisplayBalloons((balloons) => ({
+      ...balloons,
+      [teamName]: remaining,
+    }));
+  }, []);
+
+  const handleBurstComplete = useCallback(() => {
+    setBurstRunning(false);
+    if (!reveal) {
+      setPopAfterBar(true);
+      return;
+    }
+
+    setDisplayBalloons((balloons) => {
+      const next = { ...balloons };
+      for (const result of reveal.results) {
+        next[result.teamName] = result.balloonsAfter;
+      }
+      return next;
+    });
+    setPerfectTeams(new Set(reveal.results.filter((result) => result.perfect).map((result) => result.teamName)));
+    setGameOverTeams(new Set(reveal.results.filter((result) => result.eliminated).map((result) => result.teamName)));
+    setBurstApplied(true);
     setPopAfterBar(true);
-  }, [socket, reveal, roomId]);
+
+    if (reveal.results.some((result) => result.perfect)) {
+      setConfetti(true);
+      window.setTimeout(() => setConfetti(false), 3500);
+      playPerfect();
+    }
+    if (reveal.results.some((result) => result.eliminated)) {
+      playGameOver();
+    }
+  }, [reveal, setBurstApplied, setBurstRunning]);
 
   // Display balloon count helper (post-pop animation)
   const balloonsFor = (t: PublicTeam) => displayBalloons[t.name] ?? t.balloons;
@@ -234,8 +337,32 @@ export default function DisplayPage() {
     typeof window !== 'undefined' ? `${window.location.origin}/join/${roomId}` : '';
 
   return (
-    <main className="display-bg min-h-screen overflow-hidden relative" onClick={() => unlockAudio()}>
+    <main className="display-bg min-h-screen overflow-hidden relative" onClick={handleUnlockAudio}>
       <Confetti active={confetti} />
+      {!audioReady && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            handleUnlockAudio();
+          }}
+          className="fixed bottom-5 left-1/2 z-[70] -translate-x-1/2 rounded-2xl border-4 border-white bg-sky-deep/95 px-7 py-4 text-center text-white shadow-2xl backdrop-blur"
+        >
+          <span className="block text-2xl font-black">音声を有効化</span>
+          <span className="mt-1 block text-sm font-bold text-white/85">
+            管理者画面で操作する前に、ディスプレイ側で一度押してください
+          </span>
+        </button>
+      )}
+      <BalloonBurstShow
+        active={burstActive}
+        playKey={burstPlayKey}
+        results={reveal?.results ?? []}
+        teams={teams}
+        startBalloons={snapshot?.startBalloons ?? 100}
+        onPop={handleBurstPop}
+        onComplete={handleBurstComplete}
+      />
 
       {/* Top bar */}
       <header className="absolute top-3 right-3 flex items-center gap-2 z-20">

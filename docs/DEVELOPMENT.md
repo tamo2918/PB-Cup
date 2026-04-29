@@ -80,6 +80,8 @@ pnpm build        # server: dist/, web: .next/
 | 症状 | 原因と対処 |
 |---|---|
 | 「接続待ち」のまま | サーバ未起動。`pnpm dev:server` を起動 |
-| CORS エラー | `server/.env` の `CORS_ORIGIN` がフロントの URL と一致しているか確認 |
+| CORS エラー（本番 / `CORS_ORIGIN` 設定済み） | `CORS_ORIGIN` がフロントの origin と一致しているか確認（カンマ区切り可） |
+| CORS エラー（dev） | `CORS_ORIGIN` を未設定にすると dev ではすべての origin を許可する。設定済みの場合はそこに LAN IP の origin も追加する |
 | 同じ学部で参加できない | 既に同名チームが接続中。サーバを再起動するか、チーム名を変える |
+| 正解発表後 12 秒以上ディスプレイで詰まる | ディスプレイから `display:reveal_complete` が届かないが、サーバ側の 12 秒フォールバックで自動的に `result` に遷移する。すぐ進めたい場合は管理者の「次の問題へ」を押す |
 | ディスプレイで正解アニメが流れない | 一度ディスプレイを表示中のクリック等で `unlockAudio()` を発火させる必要あり（自動で実行される） |
