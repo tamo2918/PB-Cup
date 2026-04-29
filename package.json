@@ -1,0 +1,18 @@
+{
+  "name": "husen",
+  "version": "0.1.0",
+  "private": true,
+  "description": "パーセントバルーン 学部対抗ゲームシステム",
+  "scripts": {
+    "dev": "pnpm -r --parallel run dev",
+    "dev:server": "pnpm --filter @husen/server dev",
+    "dev:web": "pnpm --filter @husen/web dev",
+    "build": "pnpm -r run build",
+    "type-check": "pnpm -r run type-check",
+    "lint": "pnpm --filter @husen/web run lint"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.29.2"
+}

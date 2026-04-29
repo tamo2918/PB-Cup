@@ -1,0 +1,81 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #ffffff;
+  --foreground: #0a0a0a;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-feature-settings: "palt" 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Big-screen background — sky-themed gradient */
+.display-bg {
+  background: linear-gradient(180deg, #66B5DA 0%, #82C7E8 35%, #B7E0F0 100%);
+}
+
+/* Question box — Neppu-League-style */
+.question-box {
+  background: #ffffff;
+  border: 6px solid #1F66B0;
+  border-radius: 28px;
+  box-shadow: 0 8px 0 0 rgba(15, 102, 168, 0.6), 0 0 0 4px #FFFFFF inset;
+}
+
+/* Yellow-bordered display panel for participant input */
+.input-display {
+  background: #FFF7D6;
+  border: 4px solid #F2C846;
+  border-radius: 16px;
+  box-shadow: inset 0 4px 0 rgba(0,0,0,0.06);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Gauge bar visual — gold ticks pattern */
+.gauge-track {
+  background: repeating-linear-gradient(
+    90deg,
+    #2A2D33 0px,
+    #2A2D33 18px,
+    #1A1C20 18px,
+    #1A1C20 22px
+  );
+}
+
+.gauge-fill {
+  background: repeating-linear-gradient(
+    90deg,
+    #F2C846 0px,
+    #F2C846 18px,
+    #C99C20 18px,
+    #C99C20 22px
+  );
+}
+
+/* Bouncing dots for "waiting" status */
+.dot-pulse::after {
+  content: '...';
+  display: inline-block;
+  animation: dots 1.4s steps(4, end) infinite;
+  width: 1.5em;
+  text-align: left;
+}
+@keyframes dots {
+  0%,20% { content: ''; }
+  40% { content: '.'; }
+  60% { content: '..'; }
+  80%,100% { content: '...'; }
+}
+
+/* Hides scrollbar but allows scroll */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
