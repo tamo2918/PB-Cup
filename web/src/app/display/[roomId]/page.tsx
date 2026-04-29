@@ -81,6 +81,10 @@ export default function DisplayPage() {
         for (const t of snap.teams) fresh[t.name] = t.balloons;
         setDisplayBalloons(fresh);
       }
+      if (snap.phase === 'result' && snap.reveal) {
+        setReveal((current) => current ?? snap.reveal ?? null);
+        setPopAfterBar(true);
+      }
       if (snap.phase === 'finished') {
         setRanking(snap.ranking ?? []);
       }
@@ -285,6 +289,7 @@ export default function DisplayPage() {
             balloonsFor={balloonsFor}
             teamAnswers={teamAnswers}
             revealKey={revealKey}
+            showTeamResults={popAfterBar}
             onRevealLanded={handleRevealLanded}
           />
         )}
@@ -370,6 +375,7 @@ function GameplayView({
   balloonsFor,
   teamAnswers,
   revealKey,
+  showTeamResults,
   onRevealLanded,
 }: {
   snapshot: RoomSnapshot;
@@ -381,6 +387,7 @@ function GameplayView({
   balloonsFor: (t: PublicTeam) => number;
   teamAnswers: { teamName: string; answer: number; color: string }[];
   revealKey: number;
+  showTeamResults: boolean;
   onRevealLanded: () => void;
 }) {
   const teams = snapshot.teams;
@@ -428,10 +435,10 @@ function GameplayView({
       </AnimatePresence>
 
       {/* Team grid */}
-      <div className="flex-1 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+      <div className="flex-1 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 items-start">
         {teams.map((t) => {
           const result = reveal?.results.find((r) => r.teamName === t.name);
-          const showAnswer = isReveal && !!result;
+          const showAnswer = showTeamResults && !!result;
           const visible = balloonsFor(t);
           return (
             <TeamCard
@@ -444,6 +451,7 @@ function GameplayView({
               }}
               startBalloons={snapshot.startBalloons}
               showAnswer={showAnswer}
+              diff={showAnswer ? result?.diff : undefined}
               poppingIndexes={popping[t.name] ?? []}
               highlight={t.hasAnswered && phase === 'waiting'}
               perfect={perfectTeams.has(t.name)}

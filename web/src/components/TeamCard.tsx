@@ -2,13 +2,14 @@
 
 import { motion } from 'framer-motion';
 import type { PublicTeam } from '@husen/shared';
-import { BalloonGrid } from './BalloonGrid';
+import { RemainingBalloon } from './RemainingBalloon';
 
 interface TeamCardProps {
   team: PublicTeam;
   startBalloons: number;
   highlight?: boolean;     // e.g. all-answered or being revealed
   showAnswer?: boolean;
+  diff?: number;
   poppingIndexes?: number[];
   badgeText?: string;
   perfect?: boolean;
@@ -20,6 +21,7 @@ export function TeamCard({
   startBalloons,
   highlight = false,
   showAnswer = false,
+  diff,
   poppingIndexes = [],
   badgeText,
   perfect = false,
@@ -36,7 +38,7 @@ export function TeamCard({
           : undefined
       }
       transition={{ duration: 0.6 }}
-      className={`relative rounded-2xl p-3 bg-white/95 shadow-lg overflow-hidden ${
+      className={`relative h-fit rounded-2xl p-3 bg-white/95 shadow-lg overflow-hidden ${
         highlight ? 'ring-4 ring-yellow-300' : ''
       } ${team.eliminated ? 'opacity-60 grayscale' : ''}`}
     >
@@ -47,19 +49,27 @@ export function TeamCard({
       >
         <span className="font-black text-lg truncate">{team.name}</span>
         <span className="font-bold text-sm bg-white/25 rounded-full px-2 py-0.5">
-          🎈 {team.balloons}
+          学部
         </span>
       </div>
 
-      {/* Balloon grid */}
-      <div className="bg-sky-100 rounded-xl p-2">
-        <BalloonGrid
-          total={startBalloons}
-          remaining={team.balloons}
-          poppingIndexes={poppingIndexes}
-          seed={team.name}
-          size={14}
-          cols={10}
+      <div className="grid grid-cols-2 gap-2">
+        <RemainingBalloon
+          value={team.balloons}
+          ariaMax={startBalloons}
+          color={team.color}
+          popping={poppingIndexes.length > 0}
+          size="compact"
+        />
+        <RemainingBalloon
+          value={
+            showAnswer && team.currentAnswer !== undefined && team.currentAnswer >= 0
+              ? team.currentAnswer
+              : null
+          }
+          color={team.color}
+          kind="prediction"
+          size="compact"
         />
       </div>
 
@@ -74,6 +84,27 @@ export function TeamCard({
         )}
         {!team.online && <span className="text-amber-600">⚠ オフライン</span>}
       </div>
+
+      {showAnswer && diff !== undefined && (
+        <div
+          className={`mt-2 rounded-xl px-3 py-2 text-center font-black shadow-inner ${
+            diff === 0 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-50 text-gauge-accent'
+          }`}
+        >
+          <span className="text-xs mr-1">誤差</span>
+          <span
+            className="text-3xl text-white align-middle"
+            style={{
+              WebkitTextStroke: '4px black',
+              paintOrder: 'stroke fill',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {diff}
+          </span>
+          <span className="text-sm ml-1">{diff === 0 ? 'ぴったり' : 'ポイント'}</span>
+        </div>
+      )}
 
       {/* Badges */}
       {badgeText && (

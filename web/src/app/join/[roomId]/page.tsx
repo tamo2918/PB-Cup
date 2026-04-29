@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import type { QuestionPayload, RevealPayload, RoomSnapshot } from '@husen/shared';
 import { useSocket } from '@/hooks/useSocket';
 import { NumberPad } from '@/components/NumberPad';
+import { RemainingBalloon } from '@/components/RemainingBalloon';
 import { unlockAudio } from '@/lib/sounds';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -195,18 +196,59 @@ export default function JoinRoomPage() {
   const phase = snapshot?.phase;
   const eliminated = me?.eliminated;
   const hasAnswered = me?.hasAnswered;
+  const predictionValue =
+    myResult !== undefined
+      ? myResult.answer >= 0
+        ? myResult.answer
+        : null
+      : answer === ''
+        ? null
+        : Number(answer);
 
   return (
     <main className="display-bg min-h-screen p-3 pb-6 flex flex-col">
-      <header className="bg-white/95 rounded-2xl shadow px-4 py-2 flex items-center justify-between mb-3">
-        <div>
-          <span className="text-xs text-gray-500">参加中</span>
-          <div className="font-black text-sky-deep">{joinedTeam}</div>
+      <header className="bg-white/95 rounded-2xl shadow p-3 mb-3">
+        <div
+          className="rounded-xl px-3 py-2 text-white"
+          style={{ backgroundColor: me?.color ?? '#E84A4A' }}
+        >
+          <span className="text-xs font-bold opacity-80">参加中</span>
+          <div className="font-black text-xl leading-tight">{joinedTeam}</div>
         </div>
-        <div className="text-right">
-          <span className="text-xs text-gray-500">残り</span>
-          <div className="font-black text-gauge-accent">🎈 {me?.balloons ?? 0}</div>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <RemainingBalloon
+            value={me?.balloons ?? 0}
+            ariaMax={snapshot?.startBalloons ?? 100}
+            color={me?.color ?? '#E84A4A'}
+            size="compact"
+          />
+          <RemainingBalloon
+            value={Number.isFinite(predictionValue) ? predictionValue : null}
+            color={me?.color ?? '#E84A4A'}
+            kind="prediction"
+            size="compact"
+          />
         </div>
+        {myResult && (
+          <div
+            className={`mt-3 rounded-xl px-3 py-2 text-center font-black shadow-inner ${
+              myResult.diff === 0 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-50 text-gauge-accent'
+            }`}
+          >
+            <span className="text-xs mr-1">誤差</span>
+            <span
+              className="text-3xl text-white align-middle"
+              style={{
+                WebkitTextStroke: '4px black',
+                paintOrder: 'stroke fill',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {myResult.diff}
+            </span>
+            <span className="text-sm ml-1">{myResult.diff === 0 ? 'ぴったり' : 'ポイント'}</span>
+          </div>
+        )}
       </header>
 
       {error && (
