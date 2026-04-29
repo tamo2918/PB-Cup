@@ -214,8 +214,14 @@ export default function DisplayPage() {
   );
 
   const handleRevealLanded = useCallback(() => {
+    if (socket && reveal) {
+      socket.emit('display:reveal_complete', {
+        roomId,
+        questionIndex: reveal.questionIndex,
+      });
+    }
     setPopAfterBar(true);
-  }, []);
+  }, [socket, reveal, roomId]);
 
   // Display balloon count helper (post-pop animation)
   const balloonsFor = (t: PublicTeam) => displayBalloons[t.name] ?? t.balloons;

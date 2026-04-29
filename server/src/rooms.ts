@@ -16,6 +16,7 @@ const ADMIN_TOKEN_ALPHABET =
 
 const newRoomId = customAlphabet(ROOM_ID_ALPHABET, 6);
 const newAdminToken = customAlphabet(ADMIN_TOKEN_ALPHABET, 32);
+const REVEAL_RESULT_FALLBACK_MS = 4200;
 const TEAM_COLOR_PALETTE = [
   '#E84A4A',
   '#F39A3F',
@@ -43,6 +44,7 @@ export interface InternalRoom {
   adminSocketIds: Set<string>;
   displaySocketIds: Set<string>;
   lastReveal?: RevealPayload;
+  revealReadyTimer?: ReturnType<typeof setTimeout>;
 }
 
 const rooms = new Map<string, InternalRoom>();
@@ -176,8 +178,10 @@ export function startGame(room: InternalRoom): { ok: boolean; error?: string } {
   if (room.phase !== 'lobby') return { ok: false, error: 'ロビー以外からは開始できません' };
   if (room.teams.size < 2) return { ok: false, error: '2チーム以上が必要です' };
   if (room.questions.length === 0) return { ok: false, error: '問題が登録されていません' };
+  clearRevealReadyTimer(room);
   room.questionIndex = 0;
   room.phase = 'answering';
+  room.lastReveal = undefined;
   resetRoundAnswers(room);
   return { ok: true };
 }
@@ -270,6 +274,7 @@ export function revealAnswer(room: InternalRoom): {
     });
   }
 
+  clearRevealReadyTimer(room);
   room.phase = 'revealing';
   const payload: RevealPayload = {
     questionIndex: room.questionIndex,
@@ -280,10 +285,33 @@ export function revealAnswer(room: InternalRoom): {
   return { ok: true, payload };
 }
 
+export function scheduleRevealResult(
+  room: InternalRoom,
+  onReady: () => void,
+  delayMs = REVEAL_RESULT_FALLBACK_MS
+) {
+  clearRevealReadyTimer(room);
+  room.revealReadyTimer = setTimeout(() => {
+    room.revealReadyTimer = undefined;
+    if (room.phase !== 'revealing') return;
+    room.phase = 'result';
+    onReady();
+  }, delayMs);
+}
+
+export function markRevealResult(room: InternalRoom): boolean {
+  if (room.phase !== 'revealing') return false;
+  clearRevealReadyTimer(room);
+  room.phase = 'result';
+  return true;
+}
+
 export function nextQuestion(room: InternalRoom): { ok: boolean; error?: string; finished?: boolean } {
   if (room.phase !== 'revealing' && room.phase !== 'result') {
     return { ok: false, error: '結果表示中ではありません' };
   }
+
+  clearRevealReadyTimer(room);
 
   // Skip to finished if no active teams remain
   const activeCount = [...room.teams.values()].filter((t) => !t.eliminated).length;
@@ -294,11 +322,13 @@ export function nextQuestion(room: InternalRoom): { ok: boolean; error?: string;
 
   room.questionIndex += 1;
   room.phase = 'answering';
+  room.lastReveal = undefined;
   resetRoundAnswers(room);
   return { ok: true, finished: false };
 }
 
 export function endGame(room: InternalRoom): { ok: boolean } {
+  clearRevealReadyTimer(room);
   room.phase = 'finished';
   return { ok: true };
 }
@@ -381,6 +411,12 @@ function resetRoundAnswers(room: InternalRoom) {
     team.currentAnswer = undefined;
     team.hasAnswered = false;
   }
+}
+
+function clearRevealReadyTimer(room: InternalRoom) {
+  if (!room.revealReadyTimer) return;
+  clearTimeout(room.revealReadyTimer);
+  room.revealReadyTimer = undefined;
 }
 
 function clampPercent(v: number) {

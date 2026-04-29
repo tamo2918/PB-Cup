@@ -154,6 +154,20 @@ export default function AdminPage() {
   const endGame = () =>
     room && socket?.emit('admin:end_game', { roomId: room.roomId, adminToken: room.adminToken });
 
+  const copyJoinUrl = async () => {
+    if (!joinUrl || typeof window === 'undefined') return;
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(joinUrl);
+        return;
+      }
+      fallbackCopyText(joinUrl);
+    } catch {
+      fallbackCopyText(joinUrl);
+    }
+  };
+
   const resetRoom = () => {
     window.localStorage.removeItem('husen.admin.room');
     setRoom(null);
@@ -332,7 +346,7 @@ export default function AdminPage() {
               <h2 className="font-bold mb-3">参加用</h2>
               <QRCard url={joinUrl} label="QRで参加" size={200} />
               <button
-                onClick={() => navigator.clipboard.writeText(joinUrl)}
+                onClick={copyJoinUrl}
                 className="mt-2 w-full py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm"
               >
                 URLをコピー
@@ -495,4 +509,17 @@ function ConnectionBadge({ connected }: { connected: boolean }) {
       {connected ? '🟢 接続中' : '🟡 接続待ち'}
     </span>
   );
+}
+
+function fallbackCopyText(text: string) {
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  textarea.style.pointerEvents = 'none';
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand('copy');
+  document.body.removeChild(textarea);
 }

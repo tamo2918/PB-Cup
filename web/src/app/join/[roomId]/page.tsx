@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import type { QuestionPayload, RevealPayload, RoomSnapshot } from '@husen/shared';
 import { useSocket } from '@/hooks/useSocket';
@@ -22,6 +22,7 @@ export default function JoinRoomPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [shake, setShake] = useState(false);
+  const pendingRevealRef = useRef<RevealPayload | null>(null);
 
   // Restore previous join after refresh
   useEffect(() => {
@@ -49,17 +50,28 @@ export default function JoinRoomPage() {
       setSnapshot(snap);
       // Reset round-local state when phase changes back to answering for a new question
       if (snap.phase === 'answering') {
+        pendingRevealRef.current = null;
         setReveal(null);
         const me = snap.teams.find((t) => t.name === joinedTeam);
         if (!me?.hasAnswered) setAnswer('');
+      } else if (snap.phase === 'revealing') {
+        pendingRevealRef.current = snap.reveal ?? pendingRevealRef.current;
+      } else if (snap.phase === 'result' || snap.phase === 'finished') {
+        const resolvedReveal = snap.reveal ?? pendingRevealRef.current;
+        if (resolvedReveal) {
+          setReveal(resolvedReveal);
+        }
       }
     };
     const onQuestion = (q: QuestionPayload) => {
       setQuestion(q);
+      pendingRevealRef.current = null;
       setReveal(null);
       setAnswer('');
     };
-    const onReveal = (r: RevealPayload) => setReveal(r);
+    const onReveal = (r: RevealPayload) => {
+      pendingRevealRef.current = r;
+    };
     const onErr = (p: { code: string; message: string }) => setError(p.message);
     socket.on('room:updated', onRoom);
     socket.on('game:question', onQuestion);
@@ -263,6 +275,15 @@ export default function JoinRoomPage() {
             />
           )}
         </>
+      )}
+
+      {phase === 'revealing' && !reveal && (
+        <Card>
+          <div className="text-center py-6">
+            <div className="text-2xl font-black text-gauge-accent mb-1">📺 正解発表中</div>
+            <p className="text-gray-500 text-sm">スクリーンの演出が終わると、この端末にも結果が表示されます</p>
+          </div>
+        </Card>
       )}
 
       <AnimatePresence>

@@ -123,4 +123,7 @@ export interface ClientToServerEvents {
     payload: { roomId: string },
     cb?: (res: { ok: boolean; error?: string }) => void
   ) => void;
+  'display:reveal_complete': (
+    payload: { roomId: string; questionIndex: number }
+  ) => void;
 }

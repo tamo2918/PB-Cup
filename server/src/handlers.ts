@@ -11,9 +11,11 @@ import {
   getRoom,
   getSnapshot,
   joinTeam,
+  markRevealResult,
   markOffline,
   nextQuestion,
   revealAnswer,
+  scheduleRevealResult,
   startGame,
   submitAnswer,
   touchRoom,
@@ -132,6 +134,10 @@ export function registerHandlers(io: IO, socket: IOSocket) {
     // After clients consume the reveal animation, server still emits a snapshot
     // so that latecomers / reconnectors can recover state.
     emitRoomUpdate(io, room);
+    scheduleRevealResult(room, () => {
+      touchRoom(room);
+      emitRoomUpdate(io, room);
+    });
   });
 
   // ─── admin: next question ─────────────────────────────────────────────
@@ -252,6 +258,16 @@ export function registerHandlers(io: IO, socket: IOSocket) {
     if (room.phase === 'finished') {
       socket.emit('game:end', { ranking: getRanking(room) });
     }
+  });
+
+  socket.on('display:reveal_complete', (payload) => {
+    const room = getRoom(payload.roomId);
+    if (!room) return;
+    if (socket.data.role !== 'display' || socket.data.roomId !== room.roomId) return;
+    if (room.questionIndex !== payload.questionIndex) return;
+    if (!markRevealResult(room)) return;
+    touchRoom(room);
+    emitRoomUpdate(io, room);
   });
 
   // ─── disconnect ───────────────────────────────────────────────────────

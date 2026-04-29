@@ -24,8 +24,8 @@ pnpm dev   # server (3001) と web (3000) を並列で起動
 個別起動:
 
 ```bash
-pnpm dev:server   # http://localhost:3001  (Socket.io + healthz)
-pnpm dev:web      # http://localhost:3000
+pnpm dev:server   # http://0.0.0.0:3001  (Socket.io + healthz)
+pnpm dev:web      # http://0.0.0.0:3000
 ```
 
 ### 環境変数
@@ -54,6 +54,13 @@ CORS_ORIGIN=http://localhost:3000
 7. 全員回答後、管理者で「正解を発表する」
 8. ディスプレイでゲージアニメーション → バルーン割れアニメーション
 9. 「次の問題へ」を繰り返し、最終問題後はランキングが表示
+
+## LAN内のスマホから参加させるとき
+
+- この Mac をホストにして完結させるなら、`pnpm dev` のままでよい
+- ただし管理画面は `localhost` ではなく `http://<このMacのIPアドレス>:3000/admin` で開く
+- そうすると QR / 参加 URL / Socket 接続先がその IP ベースになり、同じ Wi-Fi の端末から参加できる
+- `CORS_ORIGIN` を未設定で起動した場合、開発中は LAN からの origin を自動許可する
 
 ## 型チェック / ビルド
 
