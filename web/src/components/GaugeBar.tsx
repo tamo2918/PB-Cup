@@ -2,12 +2,12 @@
 
 import { motion, useAnimation } from 'framer-motion';
 import { useEffect, useRef, useState } from 'react';
-import { colorForName } from '@/lib/colors';
 import { playReveal } from '@/lib/sounds';
 
 interface TeamAnswerMarker {
   teamName: string;
   answer: number;
+  color: string;
 }
 
 interface GaugeBarProps {
@@ -31,15 +31,21 @@ export function GaugeBar({
   playKey,
   onCorrectShown,
 }: GaugeBarProps) {
-  const controls = useAnimation();
+  const fillControls = useAnimation();
   const [showCorrect, setShowCorrect] = useState(false);
   const [currentLabel, setCurrentLabel] = useState(0);
   const cancelled = useRef(false);
+  const onCorrectShownRef = useRef(onCorrectShown);
+
+  useEffect(() => {
+    onCorrectShownRef.current = onCorrectShown;
+  }, [onCorrectShown]);
 
   useEffect(() => {
     cancelled.current = false;
     setShowCorrect(false);
     setCurrentLabel(0);
+    fillControls.set({ width: '0%' });
 
     const target = Math.max(0, Math.min(100, correctAnswer));
     const overshoot = Math.min(98, Math.max(target + 25, target * 1.8));
@@ -49,16 +55,16 @@ export function GaugeBar({
     };
 
     const run = async () => {
-      // Phase A: slow slide to overshoot — builds suspense
-      await controls.start({
-        left: `${overshoot}%`,
+      // Phase A: push the existing fill bar past the answer — builds suspense
+      await fillControls.start({
+        width: `${overshoot}%`,
         transition: { duration: SLIDE_DURATION_S, ease: [0.25, 0.46, 0.45, 0.94] },
       });
       if (cancelled.current) return;
 
-      // Phase B: gentle spring back, slower oscillation
-      await controls.start({
-        left: `${target}%`,
+      // Phase B: gentle spring back to the true answer
+      await fillControls.start({
+        width: `${target}%`,
         transition: {
           type: 'spring',
           stiffness: SPRING_STIFFNESS,
@@ -72,28 +78,27 @@ export function GaugeBar({
       // Phase C: lock in the red answer line + big number + sound
       playReveal();
       setShowCorrect(true);
-      onCorrectShown?.();
+      onCorrectShownRef.current?.();
     };
 
     void run();
 
     // Live percent label sampled from the moving DOM node
     const interval = window.setInterval(() => {
-      const el = document.querySelector<HTMLElement>('[data-gauge-pointer]');
+      const el = document.querySelector<HTMLElement>('[data-gauge-fill]');
       if (!el) return;
       const parent = el.parentElement;
       if (!parent) return;
-      const left = parseFloat(getComputedStyle(el).left);
-      const width = parent.clientWidth;
-      if (width > 0) updateLabel(Math.max(0, Math.min(100, (left / width) * 100)));
+      const width = parseFloat(getComputedStyle(el).width);
+      const parentWidth = parent.clientWidth;
+      if (parentWidth > 0) updateLabel(Math.max(0, Math.min(100, (width / parentWidth) * 100)));
     }, 33);
 
     return () => {
       cancelled.current = true;
       window.clearInterval(interval);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playKey]);
+  }, [correctAnswer, fillControls, playKey]);
 
   return (
     <div className="w-full">
@@ -102,12 +107,12 @@ export function GaugeBar({
         {/* Track */}
         <div className="absolute inset-0 rounded-2xl gauge-track shadow-inner" />
 
-        {/* Gold "filled portion" — only fills after the answer is locked in */}
+        {/* Gold "filled portion" — this is the moving reveal animation itself */}
         <motion.div
+          data-gauge-fill
           className="absolute inset-y-0 left-0 rounded-l-2xl gauge-fill"
           initial={{ width: '0%' }}
-          animate={{ width: showCorrect ? `${correctAnswer}%` : '0%' }}
-          transition={{ duration: 0.9, ease: 'easeOut' }}
+          animate={fillControls}
         />
 
         {/* Scale labels every 25% */}
@@ -123,7 +128,6 @@ export function GaugeBar({
 
         {/* Team answer markers — visible from the start, staggered fade-in */}
         {teamAnswers.map((t, i) => {
-          const color = colorForName(t.teamName);
           return (
             <motion.div
               key={t.teamName + t.answer}
@@ -136,53 +140,60 @@ export function GaugeBar({
               <div className="flex flex-col items-center">
                 <span
                   className="px-2 py-0.5 rounded text-[11px] font-black text-white shadow-md whitespace-nowrap"
-                  style={{ backgroundColor: color }}
+                  style={{ backgroundColor: t.color }}
                 >
                   {t.teamName} {t.answer}%
                 </span>
                 <div
                   className="w-0 h-0 border-l-[7px] border-r-[7px] border-t-[10px] border-l-transparent border-r-transparent"
-                  style={{ borderTopColor: color }}
+                  style={{ borderTopColor: t.color }}
                 />
-                <div className="w-[2px] h-[180px]" style={{ backgroundColor: color, opacity: 0.85 }} />
+                <div
+                  className="w-[2px] h-[180px]"
+                  style={{ backgroundColor: t.color, opacity: 0.85 }}
+                />
               </div>
             </motion.div>
           );
         })}
 
-        {/* Sliding pointer — gold during animation, transforms to glowing red on lock */}
-        <motion.div
-          data-gauge-pointer
-          className="absolute -top-3 z-20"
-          style={{ left: '0%', transform: 'translateX(-50%)' }}
-          animate={controls}
-          initial={{ left: '0%' }}
-        >
-          <div className="flex flex-col items-center">
-            <motion.div
-              animate={{
-                scale: showCorrect ? [1, 1.5, 1.15] : 1,
-                filter: showCorrect
-                  ? 'drop-shadow(0 0 14px rgba(224,20,60,0.95))'
-                  : 'drop-shadow(0 4px 4px rgba(0,0,0,0.4))',
-              }}
-              transition={{ duration: 0.5, ease: 'easeOut' }}
-              className="w-0 h-0 border-l-[16px] border-r-[16px] border-t-[22px] border-l-transparent border-r-transparent"
-              style={{ borderTopColor: showCorrect ? '#E0143C' : '#F2C846' }}
-            />
-            <motion.div
-              animate={{
-                width: showCorrect ? 6 : 3,
-                backgroundColor: showCorrect ? '#E0143C' : '#F2C846',
-                boxShadow: showCorrect
-                  ? '0 0 18px rgba(224,20,60,1), 0 0 36px rgba(224,20,60,0.55)'
-                  : '0 0 8px rgba(242,200,70,0.55)',
-              }}
-              transition={{ duration: 0.45, ease: 'easeOut' }}
-              className="h-[170px] rounded-sm"
-            />
+        {/* Final red answer line — only appears once the fill bar settles */}
+        {showCorrect && (
+          <div
+            className="absolute -top-3 z-20"
+            style={{ left: `${correctAnswer}%`, transform: 'translateX(-50%)' }}
+          >
+            <div className="flex flex-col items-center">
+              <motion.div
+                initial={{
+                  scale: 1,
+                  filter: 'drop-shadow(0 4px 4px rgba(0,0,0,0.4))',
+                }}
+                animate={{
+                  scale: [1, 1.5, 1.15],
+                  filter: 'drop-shadow(0 0 14px rgba(224,20,60,0.95))',
+                }}
+                transition={{ duration: 0.5, ease: 'easeOut' }}
+                className="w-0 h-0 border-l-[16px] border-r-[16px] border-t-[22px] border-l-transparent border-r-transparent"
+                style={{ borderTopColor: '#E0143C' }}
+              />
+              <motion.div
+                initial={{
+                  width: 3,
+                  backgroundColor: '#F2C846',
+                  boxShadow: '0 0 8px rgba(242,200,70,0.55)',
+                }}
+                animate={{
+                  width: 6,
+                  backgroundColor: '#E0143C',
+                  boxShadow: '0 0 18px rgba(224,20,60,1), 0 0 36px rgba(224,20,60,0.55)',
+                }}
+                transition={{ duration: 0.45, ease: 'easeOut' }}
+                className="h-[170px] rounded-sm"
+              />
+            </div>
           </div>
-        </motion.div>
+        )}
       </div>
 
       {/* Big percent label below the bar */}

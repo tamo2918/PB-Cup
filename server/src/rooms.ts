@@ -16,6 +16,18 @@ const ADMIN_TOKEN_ALPHABET =
 
 const newRoomId = customAlphabet(ROOM_ID_ALPHABET, 6);
 const newAdminToken = customAlphabet(ADMIN_TOKEN_ALPHABET, 32);
+const TEAM_COLOR_PALETTE = [
+  '#E84A4A',
+  '#F39A3F',
+  '#F7D247',
+  '#5BC07C',
+  '#3FA6E8',
+  '#A66CD0',
+  '#F08FB7',
+  '#76D6C4',
+  '#FF7B7B',
+  '#7CB6F7',
+];
 
 export interface InternalRoom {
   roomId: string;
@@ -38,6 +50,28 @@ const rooms = new Map<string, InternalRoom>();
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 const teamKey = (name: string) => name.trim().toLowerCase();
+
+function teamColorCandidate(attempt: number): string {
+  if (attempt < TEAM_COLOR_PALETTE.length) {
+    return TEAM_COLOR_PALETTE[attempt]!;
+  }
+
+  const generatedIndex = attempt - TEAM_COLOR_PALETTE.length;
+  const hue = (18 + generatedIndex * 137.508) % 360;
+  const saturation = 72 - (generatedIndex % 3) * 6;
+  const lightness = 50 + (Math.floor(generatedIndex / 3) % 4) * 6;
+  return `hsl(${hue.toFixed(2)}deg ${saturation}% ${lightness}%)`;
+}
+
+function nextTeamColor(room: InternalRoom): string {
+  const used = new Set([...room.teams.values()].map((team) => team.color));
+  let attempt = 0;
+  while (true) {
+    const candidate = teamColorCandidate(attempt);
+    if (!used.has(candidate)) return candidate;
+    attempt += 1;
+  }
+}
 
 export function createRoom(input: {
   questions: Question[];
@@ -103,6 +137,9 @@ export function joinTeam(
     if (existing.online && existing.socketId !== socketId) {
       return { ok: false, error: 'このチーム名は既に参加済みです' };
     }
+    if (!existing.color) {
+      existing.color = nextTeamColor(room);
+    }
     existing.socketId = socketId;
     existing.online = true;
     return { ok: true, team: existing };
@@ -114,6 +151,7 @@ export function joinTeam(
 
   const team: Team = {
     name: trimmed,
+    color: nextTeamColor(room),
     balloons: room.startBalloons,
     eliminated: false,
     hasAnswered: false,
@@ -280,14 +318,20 @@ export function getRanking(room: InternalRoom): RankingEntry[] {
 
 export function getSnapshot(room: InternalRoom, opts?: { includeAnswers?: boolean }): RoomSnapshot {
   const includeAnswers = opts?.includeAnswers ?? false;
-  const teams: PublicTeam[] = [...room.teams.values()].map((t) => ({
-    name: t.name,
-    balloons: t.balloons,
-    eliminated: t.eliminated,
-    hasAnswered: t.hasAnswered,
-    online: t.online,
-    currentAnswer: includeAnswers ? t.currentAnswer : undefined,
-  }));
+  const teams: PublicTeam[] = [...room.teams.values()].map((t) => {
+    if (!t.color) {
+      t.color = nextTeamColor(room);
+    }
+    return {
+      name: t.name,
+      color: t.color,
+      balloons: t.balloons,
+      eliminated: t.eliminated,
+      hasAnswered: t.hasAnswered,
+      online: t.online,
+      currentAnswer: includeAnswers ? t.currentAnswer : undefined,
+    };
+  });
 
   const currentQuestion =
     room.phase === 'lobby' || room.questionIndex >= room.questions.length

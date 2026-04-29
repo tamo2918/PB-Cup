@@ -2,7 +2,6 @@
 
 import { motion } from 'framer-motion';
 import type { PublicTeam } from '@husen/shared';
-import { colorForName } from '@/lib/colors';
 import { BalloonGrid } from './BalloonGrid';
 
 interface TeamCardProps {
@@ -26,7 +25,6 @@ export function TeamCard({
   perfect = false,
   gameOver = false,
 }: TeamCardProps) {
-  const color = colorForName(team.name);
   return (
     <motion.div
       layout
@@ -45,7 +43,7 @@ export function TeamCard({
       {/* Team name banner */}
       <div
         className="rounded-xl px-3 py-2 mb-2 flex items-center justify-between"
-        style={{ backgroundColor: color, color: 'white' }}
+        style={{ backgroundColor: team.color, color: 'white' }}
       >
         <span className="font-black text-lg truncate">{team.name}</span>
         <span className="font-bold text-sm bg-white/25 rounded-full px-2 py-0.5">

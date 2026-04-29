@@ -12,6 +12,7 @@ export type GamePhase =
 
 export interface Team {
   name: string;
+  color: string;
   balloons: number;
   eliminated: boolean;
   currentAnswer?: number;
@@ -27,6 +28,7 @@ export interface Question {
 
 export interface PublicTeam {
   name: string;
+  color: string;
   balloons: number;
   eliminated: boolean;
   hasAnswered: boolean;

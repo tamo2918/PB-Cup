@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import type {
@@ -198,12 +198,24 @@ export default function DisplayPage() {
   const teams = snapshot?.teams ?? [];
 
   const teamAnswers = useMemo(
-    () =>
-      reveal?.results
-        .filter((r) => r.answer >= 0)
-        .map((r) => ({ teamName: r.teamName, answer: r.answer })) ?? [],
-    [reveal]
+    () => {
+      const colorsByTeam = new Map((snapshot?.teams ?? []).map((team) => [team.name, team.color]));
+      return (
+        reveal?.results
+          .filter((r) => r.answer >= 0)
+          .map((r) => ({
+            teamName: r.teamName,
+            answer: r.answer,
+            color: colorsByTeam.get(r.teamName) ?? '#E84A4A',
+          })) ?? []
+      );
+    },
+    [reveal, snapshot?.teams]
   );
+
+  const handleRevealLanded = useCallback(() => {
+    setPopAfterBar(true);
+  }, []);
 
   // Display balloon count helper (post-pop animation)
   const balloonsFor = (t: PublicTeam) => displayBalloons[t.name] ?? t.balloons;
@@ -267,7 +279,7 @@ export default function DisplayPage() {
             balloonsFor={balloonsFor}
             teamAnswers={teamAnswers}
             revealKey={revealKey}
-            onRevealLanded={() => setPopAfterBar(true)}
+            onRevealLanded={handleRevealLanded}
           />
         )}
 
@@ -361,7 +373,7 @@ function GameplayView({
   perfectTeams: Set<string>;
   gameOverTeams: Set<string>;
   balloonsFor: (t: PublicTeam) => number;
-  teamAnswers: { teamName: string; answer: number }[];
+  teamAnswers: { teamName: string; answer: number; color: string }[];
   revealKey: number;
   onRevealLanded: () => void;
 }) {
