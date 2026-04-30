@@ -28,6 +28,7 @@ export default function JoinRoomPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [shake, setShake] = useState(false);
+  const [pendingReveal, setPendingReveal] = useState<RevealPayload | null>(null);
   const pendingRevealRef = useRef<RevealPayload | null>(null);
   const activeQuestionIndexRef = useRef<number | null>(null);
   const submitInFlightRef = useRef(false);
@@ -89,14 +90,20 @@ export default function JoinRoomPage() {
         if (activeQuestionIndexRef.current !== snap.questionIndex) {
           activeQuestionIndexRef.current = snap.questionIndex;
           pendingRevealRef.current = null;
+          setPendingReveal(null);
           setReveal(null);
           setAnswer('');
         }
       } else if (snap.phase === 'revealing') {
-        pendingRevealRef.current = snap.reveal ?? pendingRevealRef.current;
+        const nextPendingReveal = snap.reveal ?? pendingRevealRef.current;
+        pendingRevealRef.current = nextPendingReveal;
+        if (nextPendingReveal) {
+          setPendingReveal(nextPendingReveal);
+        }
       } else if (snap.phase === 'result' || snap.phase === 'finished') {
         const resolvedReveal = snap.reveal ?? pendingRevealRef.current;
         if (resolvedReveal) {
+          setPendingReveal(null);
           setReveal(resolvedReveal);
         }
       }
@@ -106,11 +113,13 @@ export default function JoinRoomPage() {
       activeQuestionIndexRef.current = q.questionIndex;
       setQuestion(q);
       pendingRevealRef.current = null;
+      setPendingReveal(null);
       setReveal(null);
       if (questionChanged) setAnswer('');
     };
     const onReveal = (r: RevealPayload) => {
       pendingRevealRef.current = r;
+      setPendingReveal(r);
     };
     const onErr = (p: { code: string; message: string }) => setError(p.message);
     socket.on('room:updated', onRoom);
@@ -132,6 +141,10 @@ export default function JoinRoomPage() {
   const myResult = useMemo(
     () => reveal?.results.find((r) => r.teamName === joinedTeam),
     [reveal, joinedTeam]
+  );
+  const pendingMyResult = useMemo(
+    () => pendingReveal?.results.find((r) => r.teamName === joinedTeam),
+    [pendingReveal, joinedTeam]
   );
 
   const joinedTeams = useMemo(
@@ -272,6 +285,12 @@ export default function JoinRoomPage() {
       : answer === ''
         ? null
         : Number(answer);
+  const remainingBalloonValue =
+    myResult !== undefined
+      ? myResult.balloonsAfter
+      : pendingMyResult !== undefined
+        ? pendingMyResult.balloonsBefore
+        : me?.balloons ?? 0;
 
   return (
     <main className="display-bg min-h-screen p-3 pb-6 flex flex-col">
@@ -285,7 +304,7 @@ export default function JoinRoomPage() {
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2">
           <RemainingBalloon
-            value={me?.balloons ?? 0}
+            value={remainingBalloonValue}
             ariaMax={snapshot?.startBalloons ?? 100}
             color={me?.color ?? '#E84A4A'}
             size="compact"
@@ -398,26 +417,10 @@ export default function JoinRoomPage() {
 
       <AnimatePresence>
         {reveal && (
-          <Card>
-            <div className="text-xs text-gray-500 mb-1">正解</div>
-            <div className="text-5xl font-black text-gauge-accent text-center mb-3">
+          <Card className="text-center">
+            <div className="text-6xl font-black text-gauge-accent tabular-nums">
               {reveal.correctAnswer}%
             </div>
-            {myResult && (
-              <ResultBox
-                yourAnswer={myResult.answer}
-                diff={myResult.diff}
-                perfect={myResult.perfect}
-                bonus={myResult.bonus}
-                popped={myResult.popped}
-                before={myResult.balloonsBefore}
-                after={myResult.balloonsAfter}
-                eliminated={myResult.eliminated}
-              />
-            )}
-            <p className="text-xs text-gray-400 text-center mt-3">
-              次の問題まで管理者の合図をお待ちください
-            </p>
           </Card>
         )}
       </AnimatePresence>
@@ -451,53 +454,5 @@ function Card({ children, className }: { children: React.ReactNode; className?: 
     <div className={`bg-white/95 rounded-2xl shadow px-4 py-4 mb-3 ${className ?? ''}`}>
       {children}
     </div>
-  );
-}
-
-function ResultBox({
-  yourAnswer,
-  diff,
-  perfect,
-  bonus,
-  popped,
-  before,
-  after,
-  eliminated,
-}: {
-  yourAnswer: number;
-  diff: number;
-  perfect: boolean;
-  bonus: number;
-  popped: number;
-  before: number;
-  after: number;
-  eliminated: boolean;
-}) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      className={`rounded-xl p-3 text-center ${
-        perfect
-          ? 'bg-yellow-100'
-          : eliminated
-          ? 'bg-red-100'
-          : 'bg-gray-50'
-      }`}
-    >
-      <div className="text-sm text-gray-500">
-        あなたの回答 <strong>{yourAnswer < 0 ? '–' : `${yourAnswer}%`}</strong> / 誤差 {diff}
-      </div>
-      {perfect ? (
-        <div className="text-xl font-black text-yellow-600 my-1">🎉 ぴったり！+{bonus} ボーナス</div>
-      ) : eliminated ? (
-        <div className="text-xl font-black text-gauge-accent my-1">💥 ゲームオーバー</div>
-      ) : (
-        <div className="text-xl font-black text-gauge-accent my-1">-{popped} 風船</div>
-      )}
-      <div className="text-xs text-gray-500">
-        🎈 {before} → {after}
-      </div>
-    </motion.div>
   );
 }
