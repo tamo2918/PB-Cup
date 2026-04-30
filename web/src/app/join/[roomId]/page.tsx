@@ -25,6 +25,7 @@ export default function JoinRoomPage() {
   const [error, setError] = useState<string | null>(null);
   const [shake, setShake] = useState(false);
   const pendingRevealRef = useRef<RevealPayload | null>(null);
+  const activeQuestionIndexRef = useRef<number | null>(null);
 
   // Restore previous join after refresh
   useEffect(() => {
@@ -52,12 +53,33 @@ export default function JoinRoomPage() {
     if (!socket) return;
     const onRoom = (snap: RoomSnapshot) => {
       setSnapshot(snap);
-      // Reset round-local state when phase changes back to answering for a new question
-      if (snap.phase === 'answering') {
-        pendingRevealRef.current = null;
-        setReveal(null);
-        const me = snap.teams.find((t) => t.name === joinedTeam);
-        if (!me?.hasAnswered) setAnswer('');
+      if (snap.phase === 'answering' || snap.phase === 'waiting') {
+        const snapshotQuestion = snap.currentQuestion;
+        if (snapshotQuestion) {
+          setQuestion((currentQuestion) => {
+            if (
+              currentQuestion?.questionIndex === snap.questionIndex &&
+              currentQuestion.questionText === snapshotQuestion.text &&
+              currentQuestion.totalQuestions === snap.totalQuestions
+            ) {
+              return currentQuestion;
+            }
+            return {
+              questionIndex: snap.questionIndex,
+              questionText: snapshotQuestion.text,
+              totalQuestions: snap.totalQuestions,
+            };
+          });
+        }
+
+        // `room:updated` is emitted for every team's submit/join/disconnect.
+        // Only clear this device's draft when the actual question changes.
+        if (activeQuestionIndexRef.current !== snap.questionIndex) {
+          activeQuestionIndexRef.current = snap.questionIndex;
+          pendingRevealRef.current = null;
+          setReveal(null);
+          setAnswer('');
+        }
       } else if (snap.phase === 'revealing') {
         pendingRevealRef.current = snap.reveal ?? pendingRevealRef.current;
       } else if (snap.phase === 'result' || snap.phase === 'finished') {
@@ -68,10 +90,12 @@ export default function JoinRoomPage() {
       }
     };
     const onQuestion = (q: QuestionPayload) => {
+      const questionChanged = activeQuestionIndexRef.current !== q.questionIndex;
+      activeQuestionIndexRef.current = q.questionIndex;
       setQuestion(q);
       pendingRevealRef.current = null;
       setReveal(null);
-      setAnswer('');
+      if (questionChanged) setAnswer('');
     };
     const onReveal = (r: RevealPayload) => {
       pendingRevealRef.current = r;

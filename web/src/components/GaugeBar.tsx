@@ -156,11 +156,19 @@ export function GaugeBar({
 
         {/* Team answer markers — visible from the start, staggered fade-in */}
         {teamAnswers.map((t, i) => {
+          const answerPosition = Math.max(0, Math.min(100, t.answer));
+          const labelTransform =
+            answerPosition >= 96
+              ? 'translateX(calc(-50% - 0.5rem))'
+              : answerPosition <= 4
+                ? 'translateX(calc(50% + 0.5rem))'
+                : undefined;
+
           return (
             <motion.div
               key={t.teamName + t.answer}
-              className="absolute -top-14 z-10"
-              style={{ left: `${Math.max(0, Math.min(100, t.answer))}%`, transform: 'translateX(-50%)' }}
+              className="absolute -top-14 z-10 w-0"
+              style={{ left: `${answerPosition}%` }}
               initial={{ opacity: 0, y: -16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.15 + i * 0.08, duration: 0.4 }}
@@ -168,7 +176,7 @@ export function GaugeBar({
               <div className="flex flex-col items-center">
                 <span
                   className="px-2 py-0.5 rounded text-[11px] font-black text-white shadow-md whitespace-nowrap"
-                  style={{ backgroundColor: t.color }}
+                  style={{ backgroundColor: t.color, transform: labelTransform }}
                 >
                   {t.teamName} {t.answer}%
                 </span>

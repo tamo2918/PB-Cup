@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Image from 'next/image';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { AnswerResult, PublicTeam } from '@husen/shared';
 import { balloonColorsForGrid } from '@/lib/colors';
@@ -388,72 +389,20 @@ function StageBalloon({ item }: { item: BalloonLayoutItem }) {
 }
 
 function PigeonSprite({ wingsOpen }: { wingsOpen: boolean }) {
+  const src = wingsOpen ? '/pigeon-wings-open.png' : '/pigeon-wings-closed.png';
+
   return (
-    <svg viewBox="0 0 260 220" className="block w-full overflow-visible" aria-hidden="true">
-      <g stroke="black" strokeLinecap="round" strokeLinejoin="round">
-        {wingsOpen ? (
-          <>
-            <path
-              d="M114 82C76 26 34 14 8 43c33 10 68 42 94 82Z"
-              fill="#F7FBFF"
-              strokeWidth="5"
-            />
-            <path
-              d="M146 82c38-56 80-68 106-39-33 10-68 42-94 82Z"
-              fill="#F7FBFF"
-              strokeWidth="5"
-            />
-            <path d="M37 43c31 20 53 48 69 78" fill="none" stroke="#C6CEDA" strokeWidth="3" />
-            <path d="M223 43c-31 20-53 48-69 78" fill="none" stroke="#C6CEDA" strokeWidth="3" />
-            <path d="M68 55c21 20 36 41 47 66" fill="none" stroke="#D9DEE7" strokeWidth="3" />
-            <path d="M192 55c-21 20-36 41-47 66" fill="none" stroke="#D9DEE7" strokeWidth="3" />
-          </>
-        ) : (
-          <>
-            <path
-              d="M110 91C73 76 36 84 13 113c39 6 72-2 102-24Z"
-              fill="#F7FBFF"
-              strokeWidth="5"
-            />
-            <path
-              d="M150 91c37-15 74-7 97 22-39 6-72-2-102-24Z"
-              fill="#F7FBFF"
-              strokeWidth="5"
-            />
-            <path d="M45 102c25 0 48-5 70-18" fill="none" stroke="#C6CEDA" strokeWidth="3" />
-            <path d="M215 102c-25 0-48-5-70-18" fill="none" stroke="#C6CEDA" strokeWidth="3" />
-          </>
-        )}
-        <path
-          d="M107 145 75 197l44-24Z"
-          fill="#E5EAF1"
-          strokeWidth="5"
-        />
-        <path
-          d="M153 145 185 197l-44-24Z"
-          fill="#E5EAF1"
-          strokeWidth="5"
-        />
-        <path
-          d="M101 80c-18 28-20 72-2 99 15 22 47 22 62 0 18-27 16-71-2-99-14-22-44-22-58 0Z"
-          fill="#FFFFFF"
-          strokeWidth="5"
-        />
-        <path
-          d="M108 58c-3-24 9-40 22-40s25 16 22 40c-4 23-40 23-44 0Z"
-          fill="#FFFFFF"
-          strokeWidth="5"
-        />
-        <path d="M121 59 130 78l9-19Z" fill="#F7A336" strokeWidth="4" />
-        <circle cx="119" cy="45" r="4.2" fill="black" stroke="none" />
-        <circle cx="141" cy="45" r="4.2" fill="black" stroke="none" />
-        <circle cx="120.4" cy="43.8" r="1.2" fill="white" stroke="none" />
-        <circle cx="142.4" cy="43.8" r="1.2" fill="white" stroke="none" />
-        <path d="M112 129c13 9 23 9 36 0" fill="none" stroke="#C6CEDA" strokeWidth="3" />
-        <path d="M113 183 101 207M147 183l12 24" fill="none" stroke="#D79A41" strokeWidth="5" />
-        <path d="M96 208 110 204M164 208l-14-4" fill="none" stroke="#D79A41" strokeWidth="5" />
-      </g>
-    </svg>
+    <Image
+      src={src}
+      alt=""
+      aria-hidden="true"
+      width={512}
+      height={512}
+      sizes="330px"
+      priority
+      draggable={false}
+      className="block w-full select-none drop-shadow-[0_10px_10px_rgba(0,0,0,0.25)]"
+    />
   );
 }
 

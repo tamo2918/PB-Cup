@@ -566,6 +566,7 @@ function GameplayView({
         {teams.map((t) => {
           const result = reveal?.results.find((r) => r.teamName === t.name);
           const showAnswer = showTeamResults && !!result;
+          const hidePendingElimination = !!result?.eliminated && !showTeamResults;
           const visible = balloonsFor(t);
           return (
             <TeamCard
@@ -574,6 +575,7 @@ function GameplayView({
                 ...t,
                 // Display lagging balloon count for animation
                 balloons: visible,
+                eliminated: hidePendingElimination ? false : t.eliminated,
                 currentAnswer: showAnswer ? result?.answer : undefined,
               }}
               startBalloons={snapshot.startBalloons}

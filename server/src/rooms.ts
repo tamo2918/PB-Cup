@@ -355,12 +355,22 @@ export function getRanking(room: InternalRoom): RankingEntry[] {
     if (a.eliminated !== b.eliminated) return a.eliminated ? 1 : -1;
     return b.balloons - a.balloons;
   });
-  return sorted.map((t, idx) => ({
-    rank: idx + 1,
-    teamName: t.name,
-    balloons: t.balloons,
-    eliminated: t.eliminated,
-  }));
+
+  let previousBalloons: number | undefined;
+  let previousRank = 0;
+
+  return sorted.map((t, idx) => {
+    const rank = previousBalloons === t.balloons ? previousRank : idx + 1;
+    previousBalloons = t.balloons;
+    previousRank = rank;
+
+    return {
+      rank,
+      teamName: t.name,
+      balloons: t.balloons,
+      eliminated: t.eliminated,
+    };
+  });
 }
 
 export function getSnapshot(room: InternalRoom, opts?: { includeAnswers?: boolean }): RoomSnapshot {
