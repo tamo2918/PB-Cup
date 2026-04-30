@@ -10,6 +10,10 @@ import { RemainingBalloon } from '@/components/RemainingBalloon';
 import { unlockAudio } from '@/lib/sounds';
 import { motion, AnimatePresence } from 'framer-motion';
 
+const joinedTeamStorageKey = (roomId: string) => `husen.join.${roomId}`;
+const resumeTokenStorageKey = (roomId: string, teamName: string) =>
+  `husen.joinToken.${roomId}.${encodeURIComponent(teamName)}`;
+
 export default function JoinRoomPage() {
   const params = useParams<{ roomId: string }>();
   const roomId = (params?.roomId ?? '').toUpperCase();
@@ -26,11 +30,12 @@ export default function JoinRoomPage() {
   const [shake, setShake] = useState(false);
   const pendingRevealRef = useRef<RevealPayload | null>(null);
   const activeQuestionIndexRef = useRef<number | null>(null);
+  const submitInFlightRef = useRef(false);
 
   // Restore previous join after refresh
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const stored = window.localStorage.getItem(`husen.join.${roomId}`);
+    const stored = window.localStorage.getItem(joinedTeamStorageKey(roomId));
     if (stored && KINDAI_STUDENT_COUNCIL_TEAMS.includes(stored as typeof KINDAI_STUDENT_COUNCIL_TEAMS[number])) {
       setTeamName(stored);
     }
@@ -40,10 +45,17 @@ export default function JoinRoomPage() {
     if (!socket || !connected) return;
     if (joinedTeam) {
       // Re-join after a reconnect
-      socket.emit('team:join', { roomId, teamName: joinedTeam }, (res) => {
+      const resumeToken = window.localStorage.getItem(resumeTokenStorageKey(roomId, joinedTeam));
+      socket.emit('team:join', { roomId, teamName: joinedTeam, resumeToken: resumeToken ?? undefined }, (res) => {
         if (!res?.ok) {
           setError(res?.error ?? '再接続失敗');
           setJoinedTeam(null);
+          submitInFlightRef.current = false;
+          setSubmitting(false);
+          return;
+        }
+        if (res.resumeToken) {
+          window.localStorage.setItem(resumeTokenStorageKey(roomId, joinedTeam), res.resumeToken);
         }
       });
     }
@@ -129,6 +141,7 @@ export default function JoinRoomPage() {
 
   const submit = () => {
     if (!socket || !joinedTeam) return;
+    if (submitInFlightRef.current) return;
     const value = Number(answer);
     if (!Number.isFinite(value) || value < 0 || value > 100) {
       setError('0〜100の整数で入力してください');
@@ -136,12 +149,20 @@ export default function JoinRoomPage() {
       window.setTimeout(() => setShake(false), 400);
       return;
     }
+    submitInFlightRef.current = true;
     setSubmitting(true);
     setError(null);
+    const timeout = window.setTimeout(() => {
+      submitInFlightRef.current = false;
+      setSubmitting(false);
+      setError('送信確認が取れませんでした。接続を確認してもう一度押してください');
+    }, 6000);
     socket.emit(
       'answer:submit',
       { roomId, teamName: joinedTeam, answer: value },
       (res) => {
+        window.clearTimeout(timeout);
+        submitInFlightRef.current = false;
         setSubmitting(false);
         if (!res?.ok) setError(res?.error ?? '送信に失敗しました');
       }
@@ -154,13 +175,17 @@ export default function JoinRoomPage() {
     if (!trimmed) return;
     void unlockAudio();
     setError(null);
-    socket.emit('team:join', { roomId, teamName: trimmed }, (res) => {
+    const resumeToken = window.localStorage.getItem(resumeTokenStorageKey(roomId, trimmed));
+    socket.emit('team:join', { roomId, teamName: trimmed, resumeToken: resumeToken ?? undefined }, (res) => {
       if (!res?.ok) {
         setError(res?.error ?? '参加できませんでした');
         return;
       }
       setJoinedTeam(trimmed);
-      window.localStorage.setItem(`husen.join.${roomId}`, trimmed);
+      window.localStorage.setItem(joinedTeamStorageKey(roomId), trimmed);
+      if (res.resumeToken) {
+        window.localStorage.setItem(resumeTokenStorageKey(roomId, trimmed), res.resumeToken);
+      }
     });
   };
 

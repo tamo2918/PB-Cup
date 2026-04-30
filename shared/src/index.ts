@@ -18,12 +18,14 @@ export interface Team {
   currentAnswer?: number;
   hasAnswered: boolean;
   socketId: string;
+  sessionToken: string;
   online: boolean;
 }
 
 export interface Question {
   text: string;
   correctAnswer: number;
+  imageUrl?: string;
 }
 
 export interface PublicTeam {
@@ -44,7 +46,7 @@ export interface RoomSnapshot {
   questionIndex: number;
   totalQuestions: number;
   startBalloons: number;
-  currentQuestion?: { text: string };
+  currentQuestion?: { text: string; imageUrl?: string };
   // Filled when in `revealing` / `result` / `finished`
   reveal?: RevealPayload;
   ranking?: RankingEntry[];
@@ -53,6 +55,7 @@ export interface RoomSnapshot {
 export interface QuestionPayload {
   questionIndex: number;
   questionText: string;
+  imageUrl?: string;
   totalQuestions: number;
 }
 
@@ -108,7 +111,7 @@ export interface ServerToClientEvents {
   'game:waiting': () => void;
   'error:message': (payload: { code: string; message: string }) => void;
   'admin:room_created': (payload: { roomId: string; adminToken: string }) => void;
-  'team:joined': (payload: { teamName: string; roomId: string }) => void;
+  'team:joined': (payload: { teamName: string; roomId: string; resumeToken: string }) => void;
 }
 
 export interface ClientToServerEvents {
@@ -126,8 +129,8 @@ export interface ClientToServerEvents {
   'admin:end_game': (payload: { roomId: string; adminToken: string }) => void;
 
   'team:join': (
-    payload: { roomId: string; teamName: string },
-    cb?: (res: { ok: boolean; error?: string }) => void
+    payload: { roomId: string; teamName: string; resumeToken?: string },
+    cb?: (res: { ok: boolean; error?: string; resumeToken?: string }) => void
   ) => void;
   'answer:submit': (
     payload: { roomId: string; teamName: string; answer: number },

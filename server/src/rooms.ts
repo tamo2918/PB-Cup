@@ -16,6 +16,7 @@ const ADMIN_TOKEN_ALPHABET =
 
 const newRoomId = customAlphabet(ROOM_ID_ALPHABET, 6);
 const newAdminToken = customAlphabet(ADMIN_TOKEN_ALPHABET, 32);
+const newTeamSessionToken = customAlphabet(ADMIN_TOKEN_ALPHABET, 32);
 // Fallback only. The display normally advances this after the BGM-backed reveal lands.
 const REVEAL_RESULT_FALLBACK_MS = 20000;
 const TEAM_COLOR_PALETTE = [
@@ -67,6 +68,10 @@ const rooms = new Map<string, InternalRoom>();
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 const teamKey = (name: string) => name.trim().toLowerCase();
+const optionalText = (value: unknown): string | undefined => {
+  const text = typeof value === 'string' ? value.trim() : '';
+  return text.length > 0 ? text : undefined;
+};
 
 function teamColorCandidate(attempt: number): string {
   if (attempt < TEAM_COLOR_PALETTE.length) {
@@ -107,6 +112,7 @@ export function createRoom(input: {
     questions: input.questions.map((q) => ({
       text: String(q.text ?? '').trim(),
       correctAnswer: clampPercent(Number(q.correctAnswer)),
+      imageUrl: optionalText(q.imageUrl),
     })),
     questionIndex: 0,
     startBalloons: clampInt(input.startBalloons, 10, 500, 100),
@@ -137,7 +143,8 @@ export function touchRoom(room: InternalRoom) {
 export function joinTeam(
   room: InternalRoom,
   teamName: string,
-  socketId: string
+  socketId: string,
+  resumeToken?: string
 ): { ok: true; team: Team } | { ok: false; error: string } {
   const trimmed = teamName.trim();
   if (!trimmed) return { ok: false, error: 'チーム名を入力してください' };
@@ -152,12 +159,19 @@ export function joinTeam(
   const existing = room.teams.get(key);
 
   if (existing) {
-    // Allow reconnect if offline OR same socketId; otherwise, treat as duplicate.
-    if (existing.online && existing.socketId !== socketId) {
+    const sameSocket = existing.socketId === socketId;
+    const sameSession = Boolean(resumeToken && resumeToken === existing.sessionToken);
+
+    // Allow reconnect/refresh from the same browser while rejecting another
+    // device trying to take over the same faculty.
+    if (existing.online && !sameSocket && !sameSession) {
       return { ok: false, error: 'このチーム名は既に参加済みです' };
     }
     if (!existing.color) {
       existing.color = nextTeamColor(room);
+    }
+    if (!sameSession) {
+      existing.sessionToken = newTeamSessionToken();
     }
     existing.socketId = socketId;
     existing.online = true;
@@ -175,6 +189,7 @@ export function joinTeam(
     eliminated: false,
     hasAnswered: false,
     socketId,
+    sessionToken: newTeamSessionToken(),
     online: true,
   };
   room.teams.set(key, team);
@@ -208,15 +223,27 @@ export function submitAnswer(
   teamName: string,
   answer: number
 ): { ok: boolean; error?: string; allAnswered?: boolean } {
-  if (room.phase !== 'answering') {
-    return { ok: false, error: '現在は回答受付中ではありません' };
-  }
   const team = room.teams.get(teamKey(teamName));
   if (!team) return { ok: false, error: 'チームが見つかりません' };
-  if (team.eliminated) return { ok: false, error: 'チームは脱落済みです' };
-  if (team.hasAnswered) return { ok: false, error: '既に回答済みです' };
+  if (!Number.isFinite(answer) || answer < 0 || answer > 100) {
+    return { ok: false, error: '0〜100の整数で入力してください' };
+  }
 
   const value = clampPercent(answer);
+
+  if (room.phase !== 'answering') {
+    if (room.phase === 'waiting' && team.hasAnswered && team.currentAnswer === value) {
+      return { ok: true, allAnswered: true };
+    }
+    return { ok: false, error: '現在は回答受付中ではありません' };
+  }
+  if (team.eliminated) return { ok: false, error: 'チームは脱落済みです' };
+  if (team.hasAnswered) {
+    return team.currentAnswer === value
+      ? { ok: true }
+      : { ok: false, error: '既に回答済みです' };
+  }
+
   team.currentAnswer = value;
   team.hasAnswered = true;
 
@@ -393,7 +420,10 @@ export function getSnapshot(room: InternalRoom, opts?: { includeAnswers?: boolea
   const currentQuestion =
     room.phase === 'lobby' || room.questionIndex >= room.questions.length
       ? undefined
-      : { text: room.questions[room.questionIndex]!.text };
+      : {
+          text: room.questions[room.questionIndex]!.text,
+          imageUrl: room.questions[room.questionIndex]!.imageUrl,
+        };
 
   const snap: RoomSnapshot = {
     roomId: room.roomId,

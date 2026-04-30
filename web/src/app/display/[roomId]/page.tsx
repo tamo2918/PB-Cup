@@ -405,6 +405,7 @@ export default function DisplayPage() {
                 ? {
                     questionIndex: snapshot.questionIndex,
                     questionText: snapshot.currentQuestion.text,
+                    imageUrl: snapshot.currentQuestion.imageUrl,
                     totalQuestions: snapshot.totalQuestions,
                   }
                 : null)
@@ -537,6 +538,7 @@ function GameplayView({
               index={question.questionIndex}
               total={question.totalQuestions}
               text={question.questionText}
+              imageUrl={question.imageUrl}
             />
           </motion.div>
         )}
@@ -607,7 +609,17 @@ function GameplayView({
   );
 }
 
-function QuestionPanel({ index, total, text }: { index: number; total: number; text: string }) {
+function QuestionPanel({
+  index,
+  total,
+  text,
+  imageUrl,
+}: {
+  index: number;
+  total: number;
+  text: string;
+  imageUrl?: string;
+}) {
   return (
     <div>
       <div className="flex gap-2 mb-3 justify-center">
@@ -626,13 +638,38 @@ function QuestionPanel({ index, total, text }: { index: number; total: number; t
           </div>
         ))}
       </div>
-      <div className="question-box px-12 py-10 mx-auto max-w-5xl">
-        <p className="text-3xl md:text-5xl font-black text-sky-deep leading-relaxed text-center">
-          {text}
-        </p>
-      </div>
+      {imageUrl ? (
+        <div className="question-box mx-auto max-w-6xl overflow-hidden p-0">
+          <div className="relative min-h-[330px] bg-sky-deep md:min-h-[430px]">
+            <QuestionImage src={imageUrl} />
+            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#0057B8] via-[#006CD1]/95 to-[#006CD1]/70 px-8 py-7 md:px-12 md:py-9">
+              <p
+                className="text-3xl font-black leading-tight text-white md:text-5xl"
+                style={{
+                  textShadow:
+                    '4px 4px 0 #0A2247, -2px -2px 0 #0A2247, 2px -2px 0 #0A2247, -2px 2px 0 #0A2247',
+                }}
+              >
+                {text}
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="question-box px-12 py-10 mx-auto max-w-5xl">
+          <p className="text-3xl md:text-5xl font-black text-sky-deep leading-relaxed text-center">
+            {text}
+          </p>
+        </div>
+      )}
     </div>
   );
+}
+
+function QuestionImage({ src }: { src: string }) {
+  // Admin-provided image URLs may be local public paths or arbitrary remote URLs.
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={src} alt="" className="absolute inset-0 h-full w-full object-cover" />;
 }
 
 function FinishedView({ ranking }: { ranking: RankingEntry[] }) {

@@ -9,15 +9,31 @@ import { QRCard } from '@/components/QRCard';
 interface QuestionDraft {
   id: string;
   text: string;
+  imageUrl: string;
   correctAnswer: string; // keep as string for input flexibility
 }
 
 const newDraftId = () => Math.random().toString(36).slice(2, 9);
 
 const SAMPLE_QUESTIONS: QuestionDraft[] = [
-  { id: newDraftId(), text: '20代女性で格安スマホを利用している人の割合は？', correctAnswer: '29' },
-  { id: newDraftId(), text: '日本人で朝食にパンを食べる人の割合は？', correctAnswer: '47' },
-  { id: newDraftId(), text: '大学生で月に1回以上映画館に行く人の割合は？', correctAnswer: '22' },
+  {
+    id: newDraftId(),
+    text: '20代女性で格安スマホを利用している人の割合は？',
+    imageUrl: '',
+    correctAnswer: '29',
+  },
+  {
+    id: newDraftId(),
+    text: '日本人で朝食にパンを食べる人の割合は？',
+    imageUrl: '',
+    correctAnswer: '47',
+  },
+  {
+    id: newDraftId(),
+    text: '大学生で月に1回以上映画館に行く人の割合は？',
+    imageUrl: '',
+    correctAnswer: '22',
+  },
 ];
 
 export default function AdminPage() {
@@ -85,7 +101,7 @@ export default function AdminPage() {
   // ─── handlers ─────────────────────────────────────────────────────────
 
   const addQuestion = () =>
-    setQuestions((q) => [...q, { id: newDraftId(), text: '', correctAnswer: '' }]);
+    setQuestions((q) => [...q, { id: newDraftId(), text: '', imageUrl: '', correctAnswer: '' }]);
 
   const updateQuestion = (id: string, key: keyof QuestionDraft, val: string) =>
     setQuestions((qs) => qs.map((q) => (q.id === id ? { ...q, [key]: val } : q)));
@@ -110,6 +126,7 @@ export default function AdminPage() {
     const payload = {
       questions: questions.map((q) => ({
         text: q.text.trim(),
+        imageUrl: q.imageUrl.trim() || undefined,
         correctAnswer: Number(q.correctAnswer),
       })),
       startBalloons,
@@ -271,6 +288,16 @@ export default function AdminPage() {
                     placeholder="問題文を入力"
                     className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 resize-none"
                   />
+                  <label className="grid gap-1">
+                    <span className="text-sm text-gray-500">画像URL（任意）</span>
+                    <input
+                      type="text"
+                      value={q.imageUrl}
+                      onChange={(e) => updateQuestion(q.id, 'imageUrl', e.target.value)}
+                      placeholder="/question-images/q1.jpg または https://..."
+                      className="w-full border-2 border-gray-200 rounded-lg px-3 py-2"
+                    />
+                  </label>
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-gray-500">正解</span>
                     <input
@@ -482,6 +509,11 @@ export default function AdminPage() {
                   現在の問題 ({snapshot.questionIndex + 1}/{snapshot.totalQuestions})
                 </div>
                 <div className="text-lg font-bold">{snapshot.currentQuestion.text}</div>
+                {snapshot.currentQuestion.imageUrl && (
+                  <div className="mt-2 overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
+                    <PreviewImage src={snapshot.currentQuestion.imageUrl} />
+                  </div>
+                )}
                 {snapshot.reveal && (
                   <div className="text-sm mt-2 text-gauge-accent font-bold">
                     正解: {snapshot.reveal.correctAnswer}%
@@ -506,6 +538,12 @@ function ConnectionBadge({ connected }: { connected: boolean }) {
       {connected ? '🟢 接続中' : '🟡 接続待ち'}
     </span>
   );
+}
+
+function PreviewImage({ src }: { src: string }) {
+  // Admin-provided image URLs may be local public paths or arbitrary remote URLs.
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={src} alt="" className="h-32 w-full object-cover" />;
 }
 
 function fallbackCopyText(text: string) {

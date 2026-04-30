@@ -25,19 +25,71 @@ import {
 type IO = Server<ClientToServerEvents, ServerToClientEvents>;
 type IOSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function parseAdminPayload(payload: unknown): { roomId: string; adminToken: string } | null {
+  if (!isRecord(payload)) return null;
+  const { roomId, adminToken } = payload;
+  if (typeof roomId !== 'string' || typeof adminToken !== 'string') return null;
+  return { roomId, adminToken };
+}
+
+function parseTeamJoinPayload(
+  payload: unknown
+): { roomId: string; teamName: string; resumeToken?: string } | null {
+  if (!isRecord(payload)) return null;
+  const { roomId, teamName, resumeToken } = payload;
+  if (typeof roomId !== 'string' || typeof teamName !== 'string') return null;
+  if (resumeToken !== undefined && typeof resumeToken !== 'string') return null;
+  return { roomId, teamName, resumeToken };
+}
+
+function parseAnswerPayload(
+  payload: unknown
+): { roomId: string; teamName: string; answer: number } | null {
+  if (!isRecord(payload)) return null;
+  const { roomId, teamName, answer } = payload;
+  if (typeof roomId !== 'string' || typeof teamName !== 'string') return null;
+  const numericAnswer = Number(answer);
+  if (!Number.isFinite(numericAnswer)) return null;
+  return { roomId, teamName, answer: numericAnswer };
+}
+
+function parseDisplayPayload(payload: unknown): { roomId: string } | null {
+  if (!isRecord(payload) || typeof payload.roomId !== 'string') return null;
+  return { roomId: payload.roomId };
+}
+
+function parseRevealCompletePayload(
+  payload: unknown
+): { roomId: string; questionIndex: number } | null {
+  if (!isRecord(payload) || typeof payload.roomId !== 'string') return null;
+  const questionIndex = Number(payload.questionIndex);
+  if (!Number.isInteger(questionIndex)) return null;
+  return { roomId: payload.roomId, questionIndex };
+}
+
 function emitRoomUpdate(io: IO, room: InternalRoom) {
   io.to(room.roomId).emit('room:updated', getSnapshot(room));
 }
 
 function broadcastQuestion(io: IO, room: InternalRoom) {
+  const payload = makeQuestionPayload(room);
+  if (!payload) return;
+  io.to(room.roomId).emit('game:question', payload);
+}
+
+function makeQuestionPayload(room: InternalRoom): QuestionPayload | null {
   const q = room.questions[room.questionIndex];
-  if (!q) return;
-  const payload: QuestionPayload = {
+  if (!q) return null;
+  return {
     questionIndex: room.questionIndex,
     questionText: q.text,
+    imageUrl: q.imageUrl,
     totalQuestions: room.questions.length,
   };
-  io.to(room.roomId).emit('game:question', payload);
 }
 
 function requireAdmin(
@@ -60,13 +112,18 @@ export function registerHandlers(io: IO, socket: IOSocket) {
   // ─── admin: create room ────────────────────────────────────────────────
   socket.on('admin:create_room', (payload, cb) => {
     try {
+      if (!isRecord(payload)) {
+        cb?.({ ok: false, error: 'リクエスト形式が不正です' });
+        return;
+      }
       const questions = Array.isArray(payload.questions) ? payload.questions : [];
       if (questions.length === 0) {
         cb?.({ ok: false, error: '問題を1つ以上登録してください' });
         return;
       }
+      const normalizedQuestions = [];
       for (const q of questions) {
-        if (typeof q.text !== 'string' || !q.text.trim()) {
+        if (!isRecord(q) || typeof q.text !== 'string' || !q.text.trim()) {
           cb?.({ ok: false, error: '問題文が空の項目があります' });
           return;
         }
@@ -75,11 +132,18 @@ export function registerHandlers(io: IO, socket: IOSocket) {
           cb?.({ ok: false, error: '正解は 0〜100 の整数で入力してください' });
           return;
         }
+        normalizedQuestions.push({
+          text: q.text,
+          correctAnswer: c,
+          imageUrl: typeof q.imageUrl === 'string' ? q.imageUrl : undefined,
+        });
       }
       const room = createRoom({
-        questions,
-        startBalloons: payload.startBalloons,
-        allowedTeams: payload.allowedTeams,
+        questions: normalizedQuestions,
+        startBalloons: Number(payload.startBalloons),
+        allowedTeams: Array.isArray(payload.allowedTeams)
+          ? payload.allowedTeams.filter((team): team is string => typeof team === 'string')
+          : undefined,
       });
       socket.join(room.roomId);
       room.adminSocketIds.add(socket.id);
@@ -94,7 +158,12 @@ export function registerHandlers(io: IO, socket: IOSocket) {
 
   // ─── admin: rejoin existing room (e.g. after refresh) ─────────────────
   socket.on('admin:join', (payload, cb) => {
-    const room = requireAdmin(socket, payload);
+    const parsed = parseAdminPayload(payload);
+    if (!parsed) {
+      cb?.({ ok: false, error: 'リクエスト形式が不正です' });
+      return;
+    }
+    const room = requireAdmin(socket, parsed);
     if (!room) {
       cb?.({ ok: false, error: '権限がないかルームが存在しません' });
       return;
@@ -108,7 +177,12 @@ export function registerHandlers(io: IO, socket: IOSocket) {
 
   // ─── admin: start game ────────────────────────────────────────────────
   socket.on('admin:start_game', (payload) => {
-    const room = requireAdmin(socket, payload);
+    const parsed = parseAdminPayload(payload);
+    if (!parsed) {
+      socket.emit('error:message', { code: 'BAD_REQUEST', message: 'リクエスト形式が不正です' });
+      return;
+    }
+    const room = requireAdmin(socket, parsed);
     if (!room) return;
     const r = startGame(room);
     if (!r.ok) {
@@ -122,7 +196,12 @@ export function registerHandlers(io: IO, socket: IOSocket) {
 
   // ─── admin: reveal ────────────────────────────────────────────────────
   socket.on('admin:reveal', (payload) => {
-    const room = requireAdmin(socket, payload);
+    const parsed = parseAdminPayload(payload);
+    if (!parsed) {
+      socket.emit('error:message', { code: 'BAD_REQUEST', message: 'リクエスト形式が不正です' });
+      return;
+    }
+    const room = requireAdmin(socket, parsed);
     if (!room) return;
     const r = revealAnswer(room);
     if (!r.ok || !r.payload) {
@@ -142,7 +221,12 @@ export function registerHandlers(io: IO, socket: IOSocket) {
 
   // ─── admin: next question ─────────────────────────────────────────────
   socket.on('admin:next_question', (payload) => {
-    const room = requireAdmin(socket, payload);
+    const parsed = parseAdminPayload(payload);
+    if (!parsed) {
+      socket.emit('error:message', { code: 'BAD_REQUEST', message: 'リクエスト形式が不正です' });
+      return;
+    }
+    const room = requireAdmin(socket, parsed);
     if (!room) return;
     const r = nextQuestion(room);
     if (!r.ok) {
@@ -161,7 +245,12 @@ export function registerHandlers(io: IO, socket: IOSocket) {
 
   // ─── admin: end game ──────────────────────────────────────────────────
   socket.on('admin:end_game', (payload) => {
-    const room = requireAdmin(socket, payload);
+    const parsed = parseAdminPayload(payload);
+    if (!parsed) {
+      socket.emit('error:message', { code: 'BAD_REQUEST', message: 'リクエスト形式が不正です' });
+      return;
+    }
+    const room = requireAdmin(socket, parsed);
     if (!room) return;
     endGame(room);
     touchRoom(room);
@@ -171,12 +260,27 @@ export function registerHandlers(io: IO, socket: IOSocket) {
 
   // ─── team: join ───────────────────────────────────────────────────────
   socket.on('team:join', (payload, cb) => {
-    const room = getRoom(payload.roomId);
+    const parsed = parseTeamJoinPayload(payload);
+    if (!parsed) {
+      cb?.({ ok: false, error: 'リクエスト形式が不正です' });
+      return;
+    }
+    const room = getRoom(parsed.roomId);
     if (!room) {
       cb?.({ ok: false, error: 'ルームが見つかりません' });
       return;
     }
-    const r = joinTeam(room, payload.teamName, socket.id);
+    const existingRoomId = socket.data.role === 'team' ? (socket.data.roomId as string | undefined) : undefined;
+    const existingTeamName = socket.data.role === 'team' ? (socket.data.teamName as string | undefined) : undefined;
+    if (
+      existingRoomId &&
+      (existingRoomId !== room.roomId || existingTeamName !== parsed.teamName.trim())
+    ) {
+      cb?.({ ok: false, error: 'この端末は既に別の学部で参加しています' });
+      return;
+    }
+
+    const r = joinTeam(room, parsed.teamName, socket.id, parsed.resumeToken);
     if (!r.ok) {
       cb?.({ ok: false, error: r.error });
       return;
@@ -186,37 +290,40 @@ export function registerHandlers(io: IO, socket: IOSocket) {
     socket.data.teamName = r.team.name;
     socket.data.roomId = room.roomId;
     touchRoom(room);
-    cb?.({ ok: true });
-    socket.emit('team:joined', { teamName: r.team.name, roomId: room.roomId });
+    cb?.({ ok: true, resumeToken: r.team.sessionToken });
+    socket.emit('team:joined', {
+      teamName: r.team.name,
+      roomId: room.roomId,
+      resumeToken: r.team.sessionToken,
+    });
     emitRoomUpdate(io, room);
     // If a question is currently active, send the current question to the
     // (re)joining team so they can answer right away.
     if (room.phase === 'answering' || room.phase === 'waiting') {
-      const q = room.questions[room.questionIndex];
-      if (q) {
-        socket.emit('game:question', {
-          questionIndex: room.questionIndex,
-          questionText: q.text,
-          totalQuestions: room.questions.length,
-        });
-      }
+      const questionPayload = makeQuestionPayload(room);
+      if (questionPayload) socket.emit('game:question', questionPayload);
     }
   });
 
   // ─── answer: submit ───────────────────────────────────────────────────
   socket.on('answer:submit', (payload, cb) => {
-    const room = getRoom(payload.roomId);
+    const parsed = parseAnswerPayload(payload);
+    if (!parsed) {
+      cb?.({ ok: false, error: 'リクエスト形式が不正です' });
+      return;
+    }
+    const room = getRoom(parsed.roomId);
     if (!room) {
       cb?.({ ok: false, error: 'ルームが見つかりません' });
       return;
     }
     // Verify socket matches team
-    const team = room.teams.get(payload.teamName.trim().toLowerCase());
+    const team = room.teams.get(parsed.teamName.trim().toLowerCase());
     if (!team || team.socketId !== socket.id) {
       cb?.({ ok: false, error: 'チームの認証に失敗しました' });
       return;
     }
-    const r = submitAnswer(room, payload.teamName, payload.answer);
+    const r = submitAnswer(room, parsed.teamName, parsed.answer);
     if (!r.ok) {
       cb?.({ ok: false, error: r.error });
       return;
@@ -231,7 +338,12 @@ export function registerHandlers(io: IO, socket: IOSocket) {
 
   // ─── display: join (for big-screen view) ──────────────────────────────
   socket.on('display:join', (payload, cb) => {
-    const room = getRoom(payload.roomId);
+    const parsed = parseDisplayPayload(payload);
+    if (!parsed) {
+      cb?.({ ok: false, error: 'リクエスト形式が不正です' });
+      return;
+    }
+    const room = getRoom(parsed.roomId);
     if (!room) {
       cb?.({ ok: false, error: 'ルームが見つかりません' });
       return;
@@ -243,14 +355,8 @@ export function registerHandlers(io: IO, socket: IOSocket) {
     cb?.({ ok: true });
     socket.emit('room:updated', getSnapshot(room));
     if (room.phase === 'answering' || room.phase === 'waiting') {
-      const q = room.questions[room.questionIndex];
-      if (q) {
-        socket.emit('game:question', {
-          questionIndex: room.questionIndex,
-          questionText: q.text,
-          totalQuestions: room.questions.length,
-        });
-      }
+      const questionPayload = makeQuestionPayload(room);
+      if (questionPayload) socket.emit('game:question', questionPayload);
     }
     if (room.phase === 'revealing' && room.lastReveal) {
       socket.emit('game:reveal', room.lastReveal);
@@ -261,10 +367,12 @@ export function registerHandlers(io: IO, socket: IOSocket) {
   });
 
   socket.on('display:reveal_complete', (payload) => {
-    const room = getRoom(payload.roomId);
+    const parsed = parseRevealCompletePayload(payload);
+    if (!parsed) return;
+    const room = getRoom(parsed.roomId);
     if (!room) return;
     if (socket.data.role !== 'display' || socket.data.roomId !== room.roomId) return;
-    if (room.questionIndex !== payload.questionIndex) return;
+    if (room.questionIndex !== parsed.questionIndex) return;
     if (!markRevealResult(room)) return;
     touchRoom(room);
     emitRoomUpdate(io, room);
