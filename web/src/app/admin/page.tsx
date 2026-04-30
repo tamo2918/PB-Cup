@@ -368,7 +368,7 @@ export default function AdminPage() {
           <aside className="md:col-span-1 space-y-3">
             <div className="bg-white rounded-2xl shadow p-4">
               <h2 className="font-bold mb-3">参加用</h2>
-              <QRCard url={joinUrl} label="QRで参加" size={200} />
+              <QRCard url={joinUrl} label="QRで参加" size={240} />
               <button
                 onClick={copyJoinUrl}
                 className="mt-2 w-full py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm"

@@ -364,6 +364,19 @@ export default function DisplayPage() {
         onComplete={handleBurstComplete}
       />
 
+      {phase === 'lobby' && (
+        <div className="absolute left-5 top-5 z-20">
+          <div className="rounded-2xl border-4 border-white/80 bg-white/55 px-5 py-3 text-sky-deep shadow-xl backdrop-blur-md">
+            <div className="text-xs font-black tracking-[0.28em] text-sky-deep/65">
+              KINDAI UNIVERSITY
+            </div>
+            <div className="mt-0.5 text-2xl font-black drop-shadow-[0_2px_0_#FFFFFF] md:text-3xl">
+              情報学部自治会
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Top bar */}
       <header className="absolute top-3 right-3 flex items-center gap-2 z-20">
         <span className="text-xs px-2 py-1 rounded bg-white/40 text-sky-deep font-bold">
@@ -451,14 +464,14 @@ function LobbyView({
       </h1>
       <p className="text-xl text-sky-deep/80">スマホで参加 → 大画面で観戦</p>
 
-      <div className="flex flex-col md:flex-row gap-8 items-center">
-        <QRCard url={joinUrl} label="QRで参加" size={280} />
-        <div className="bg-white/95 rounded-2xl shadow-2xl px-8 py-6 text-center">
+      <div className="flex flex-col md:flex-row gap-10 items-center">
+        <QRCard url={joinUrl} label="QRで参加" size={380} />
+        <div className="bg-white/95 rounded-3xl shadow-2xl px-10 py-8 text-center">
           <div className="text-sm text-gray-500">ルームID</div>
-          <div className="text-7xl font-black tracking-widest text-gauge-accent my-2">
+          <div className="text-8xl font-black tracking-widest text-gauge-accent my-2">
             {roomId}
           </div>
-          <div className="text-sm text-gray-500">初期風船 🎈 {startBalloons}</div>
+          <div className="text-base text-gray-500">初期風船 🎈 {startBalloons}</div>
         </div>
       </div>
 
