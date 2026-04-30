@@ -76,8 +76,8 @@ export function BalloonBurstShow({
     [beforeCount, current?.teamName]
   );
   const birdTarget = poppingIndex === null ? null : layout.find((item) => item.index === poppingIndex);
-  const birdLeft = birdTarget ? clamp(birdTarget.x + (birdTarget.x < 50 ? 5 : -5), 17, 83) : 54;
-  const birdTop = birdTarget ? clamp(birdTarget.y + 5, 22, 62) : 39;
+  const birdLeft = birdTarget ? clamp(birdTarget.x + (birdTarget.x < 50 ? 8 : -8), 14, 86) : 48;
+  const birdTop = birdTarget ? clamp(birdTarget.y + 7, 18, 66) : 40;
 
   useEffect(() => {
     if (!active) return;
@@ -192,23 +192,23 @@ export function BalloonBurstShow({
             />
             <motion.div
               className="absolute z-[235] w-[250px] md:w-[330px]"
-              initial={{ left: '54%', top: '39%', x: '-50%', y: '-44%', scale: 0.82, opacity: 0 }}
+              initial={{ left: '-18%', top: '44%', x: '-50%', y: '-50%', scale: 0.68, opacity: 0, rotate: -12 }}
               animate={{
                 left: `${birdLeft}%`,
                 top: `${birdTop}%`,
                 x: '-50%',
-                y: ['-44%', '-54%', '-40%', '-50%'],
-                scale: [0.98, 1.06, 1],
+                y: ['-48%', '-68%', '-34%', '-58%', '-43%'],
+                scale: [0.92, 1.1, 0.98, 1.06],
                 opacity: 1,
-                rotate: [-3, 4, -2],
+                rotate: [-9, 8, -7, 5],
               }}
               transition={{
-                left: { duration: 0.2, ease: 'easeOut' },
-                top: { duration: 0.2, ease: 'easeOut' },
-                y: { duration: 0.55, repeat: Infinity, ease: 'easeInOut' },
-                scale: { duration: 0.55, repeat: Infinity, ease: 'easeInOut' },
-                rotate: { duration: 0.7, repeat: Infinity, ease: 'easeInOut' },
-                opacity: { duration: 0.2 },
+                left: { duration: birdTarget ? 0.13 : 0.48, ease: [0.16, 1, 0.3, 1] },
+                top: { duration: birdTarget ? 0.13 : 0.48, ease: [0.16, 1, 0.3, 1] },
+                y: { duration: 0.38, repeat: Infinity, ease: 'easeInOut' },
+                scale: { duration: 0.38, repeat: Infinity, ease: 'easeInOut' },
+                rotate: { duration: 0.46, repeat: Infinity, ease: 'easeInOut' },
+                opacity: { duration: 0.16 },
               }}
             >
               <PigeonSprite wingsOpen={wingsOpen} />
@@ -529,7 +529,7 @@ function RemainingCounter({
 
 function WickerBasket() {
   return (
-    <div className="absolute bottom-[-2%] left-1/2 z-[210] h-[17%] w-[74%] -translate-x-1/2 rounded-t-[2rem] border-[9px] border-black bg-[#F7C56B] shadow-2xl">
+    <div className="absolute bottom-[-2%] left-1/2 z-[210] h-[17%] w-[66%] -translate-x-1/2 rounded-t-[2rem] border-[9px] border-black bg-[#F7C56B] shadow-2xl">
       <div
         className="absolute inset-4 rounded-t-xl border-4 border-[#8B5A1E]"
         style={{
@@ -542,9 +542,9 @@ function WickerBasket() {
 }
 
 const BALLOON_BACKGROUNDS = [
-  '/balloon-bg-sky.svg',
-  '/balloon-bg-mountain.svg',
-  '/balloon-bg-sunset.svg',
+  '/balloon-bg-beach.png',
+  '/balloon-bg-alpine-lake.png',
+  '/balloon-bg-city-bay.png',
 ] as const;
 
 function SkyBackdrop({ variant }: { variant: number }) {
@@ -589,9 +589,9 @@ function makeBalloonLayout(count: number, seed: string): BalloonLayoutItem[] {
     const stagger = row % 2 === 0 ? 0 : 3.2;
     const x = clamp(((col + 0.5) / columns) * 74 + 13 + stagger + (jitterX - 0.5) * 3.6, 11, 89);
     const distanceFromCenter = Math.abs(x - 50) / 50;
-    const sideDrop = Math.pow(distanceFromCenter, 1.45) * 19;
-    const hillLift = (1 - distanceFromCenter) * 6;
-    const y = clamp(9 + row * 5.1 + sideDrop - hillLift + (jitterY - 0.5) * 4.4, 7, 72);
+    const sideDrop = Math.pow(distanceFromCenter, 1.38) * 24;
+    const hillLift = Math.pow(1 - distanceFromCenter, 1.25) * 10;
+    const y = clamp(8 + row * 5.1 + sideDrop - hillLift + (jitterY - 0.5) * 4.4, 5, 74);
     const anchorX = clamp(50 + (x - 50) * 0.3 + (anchorJitter - 0.5) * 5, 29, 71);
     const color = colors[index]!;
 

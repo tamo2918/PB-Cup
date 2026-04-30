@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { KINDAI_STUDENT_COUNCIL_TEAMS } from '@husen/shared';
 import type { RankingEntry, RoomSnapshot } from '@husen/shared';
 import { useSocket } from '@/hooks/useSocket';
 import { QRCard } from '@/components/QRCard';
@@ -23,9 +24,6 @@ export default function AdminPage() {
   const { socket, connected } = useSocket();
   const [questions, setQuestions] = useState<QuestionDraft[]>(SAMPLE_QUESTIONS);
   const [startBalloons, setStartBalloons] = useState(100);
-  const [allowedTeams, setAllowedTeams] = useState<string>(
-    '工学部, 理学部, 文学部, 法学部, 医学部'
-  );
   const [room, setRoom] = useState<{ roomId: string; adminToken: string } | null>(null);
   const [snapshot, setSnapshot] = useState<RoomSnapshot | null>(null);
   const [ranking, setRanking] = useState<RankingEntry[] | null>(null);
@@ -109,17 +107,13 @@ export default function AdminPage() {
   const createRoom = () => {
     setError(null);
     if (!socket) return;
-    const allowed = allowedTeams
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
     const payload = {
       questions: questions.map((q) => ({
         text: q.text.trim(),
         correctAnswer: Number(q.correctAnswer),
       })),
       startBalloons,
-      allowedTeams: allowed,
+      allowedTeams: [...KINDAI_STUDENT_COUNCIL_TEAMS],
     };
     if (payload.questions.some((q) => !q.text)) {
       setError('問題文を全て入力してください。');
@@ -193,16 +187,19 @@ export default function AdminPage() {
           )}
 
           <section className="bg-white rounded-2xl shadow p-6 mb-4">
-            <h2 className="font-bold text-lg mb-3">参加チーム名（任意・カンマ区切り）</h2>
-            <input
-              type="text"
-              value={allowedTeams}
-              onChange={(e) => setAllowedTeams(e.target.value)}
-              className="w-full border-2 border-gray-200 rounded-lg px-3 py-2"
-              placeholder="工学部, 理学部, 文学部"
-            />
+            <h2 className="font-bold text-lg mb-3">参加できる学部・自治会</h2>
+            <div className="flex flex-wrap gap-2">
+              {KINDAI_STUDENT_COUNCIL_TEAMS.map((team) => (
+                <span
+                  key={team}
+                  className="rounded-full bg-sky-100 px-3 py-1 text-sm font-bold text-sky-deep"
+                >
+                  {team}
+                </span>
+              ))}
+            </div>
             <p className="text-xs text-gray-500 mt-1">
-              空欄にすると自由なチーム名で参加できます
+              参加画面では、この候補から選択して参加します
             </p>
           </section>
 

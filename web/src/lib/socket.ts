@@ -19,7 +19,7 @@ export function getSocket(): AppSocket {
     transports: ['websocket', 'polling'],
     autoConnect: true,
     reconnection: true,
-    reconnectionAttempts: 10,
+    reconnectionAttempts: Infinity,
     reconnectionDelay: 800,
   }) as AppSocket;
 

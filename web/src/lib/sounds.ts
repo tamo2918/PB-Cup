@@ -210,34 +210,6 @@ export function playTick(): void {
   osc.stop(t + 0.05);
 }
 
-export function playReveal(): void {
-  // "Don" hit when correct number drops in
-  const c = getCtx();
-  if (!c) return;
-  const t = c.currentTime;
-  const osc = c.createOscillator();
-  const gain = c.createGain();
-  osc.type = 'triangle';
-  osc.frequency.setValueAtTime(220, t);
-  osc.frequency.exponentialRampToValueAtTime(80, t + 0.5);
-  gain.gain.setValueAtTime(0.45, t);
-  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
-  osc.connect(gain).connect(c.destination);
-  osc.start(t);
-  osc.stop(t + 0.6);
-
-  const noiseBuf = c.createBuffer(1, c.sampleRate * 0.2, c.sampleRate);
-  const data = noiseBuf.getChannelData(0);
-  for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
-  const src = c.createBufferSource();
-  src.buffer = noiseBuf;
-  const ng = c.createGain();
-  ng.gain.setValueAtTime(0.35, t);
-  ng.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
-  src.connect(ng).connect(c.destination);
-  src.start(t);
-}
-
 export function playPerfect(): void {
   const c = getCtx();
   if (!c) return;

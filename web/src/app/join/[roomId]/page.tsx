@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { KINDAI_STUDENT_COUNCIL_TEAMS } from '@husen/shared';
 import type { QuestionPayload, RevealPayload, RoomSnapshot } from '@husen/shared';
 import { useSocket } from '@/hooks/useSocket';
 import { NumberPad } from '@/components/NumberPad';
@@ -29,7 +30,9 @@ export default function JoinRoomPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const stored = window.localStorage.getItem(`husen.join.${roomId}`);
-    if (stored) setTeamName(stored);
+    if (stored && KINDAI_STUDENT_COUNCIL_TEAMS.includes(stored as typeof KINDAI_STUDENT_COUNCIL_TEAMS[number])) {
+      setTeamName(stored);
+    }
   }, [roomId]);
 
   useEffect(() => {
@@ -95,10 +98,10 @@ export default function JoinRoomPage() {
     [reveal, joinedTeam]
   );
 
-  const allowedTeams = useMemo(() => {
-    // We don't have allowedTeams in snapshot. Fall back to recently-seen team names.
-    return snapshot?.teams.map((t) => t.name) ?? [];
-  }, [snapshot]);
+  const joinedTeams = useMemo(
+    () => new Set(snapshot?.teams.map((t) => t.name) ?? []),
+    [snapshot]
+  );
 
   const submit = () => {
     if (!socket || !joinedTeam) return;
@@ -151,28 +154,44 @@ export default function JoinRoomPage() {
             </div>
           )}
 
-          <input
-            type="text"
-            value={teamName}
-            onChange={(e) => setTeamName(e.target.value)}
-            placeholder="学部名を入力（例: 工学部）"
-            maxLength={24}
-            className="w-full border-2 border-sky-deep rounded-xl px-3 py-3 mb-3 text-center text-lg font-bold"
-          />
+          <div className="grid grid-cols-2 gap-2 mb-4">
+            {KINDAI_STUDENT_COUNCIL_TEAMS.map((team) => {
+              const selected = teamName === team;
+              const alreadyJoined = joinedTeams.has(team);
+
+              return (
+                <button
+                  key={team}
+                  type="button"
+                  onClick={() => setTeamName(team)}
+                  className={`rounded-xl border-2 px-2 py-3 text-sm font-black transition ${
+                    selected
+                      ? 'border-gauge-accent bg-red-50 text-gauge-accent shadow'
+                      : 'border-sky-deep/20 bg-white text-sky-deep hover:border-sky-deep hover:bg-sky-50'
+                  }`}
+                >
+                  <span className="block">{team}</span>
+                  {alreadyJoined && (
+                    <span className="mt-1 block text-[10px] font-bold text-gray-400">参加済み</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
 
           <button
             onClick={() => join(teamName)}
             disabled={!connected || !teamName.trim()}
             className="w-full bg-gauge-accent disabled:bg-gray-300 hover:bg-red-700 text-white text-xl font-black py-4 rounded-xl"
           >
-            このチームで参加
+            {teamName ? `${teamName}で参加` : '学部を選択してください'}
           </button>
 
-          {allowedTeams.length > 0 && (
+          {joinedTeams.size > 0 && (
             <>
               <p className="text-xs text-gray-400 mt-4">参加済みのチーム</p>
               <div className="flex flex-wrap gap-1 justify-center mt-1">
-                {allowedTeams.map((t) => (
+                {[...joinedTeams].map((t) => (
                   <span
                     key={t}
                     className="text-xs px-2 py-0.5 bg-sky-100 text-sky-deep rounded-full"

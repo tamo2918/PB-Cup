@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ANSWER_REVEAL_BGM_DURATION_MS, playAnswerRevealBgm, playReveal } from '@/lib/sounds';
+import { ANSWER_REVEAL_BGM_DURATION_MS, playAnswerRevealBgm } from '@/lib/sounds';
 
 interface TeamAnswerMarker {
   teamName: string;
@@ -15,7 +15,7 @@ interface GaugeBarProps {
   teamAnswers?: TeamAnswerMarker[];
   /** Increment to trigger a replay of the animation */
   playKey: number;
-  /** Called when the correct number "thump" lands */
+  /** Called when the correct number is shown */
   onCorrectShown?: () => void;
 }
 
@@ -102,7 +102,6 @@ export function GaugeBar({
 
       // Switching off the suspense sweep lets the same bar snap to the true answer.
       setSuspenseActive(false);
-      playReveal();
       setShowCorrect(true);
       onCorrectShownRef.current?.();
     };

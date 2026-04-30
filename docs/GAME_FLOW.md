@@ -56,10 +56,10 @@ Phase A:  fill バー(金色) 0% ──slow slide──► overshoot (target × 
             duration: 2.6s, ease: cubic-bezier(0.25,0.46,0.45,0.94)
 Phase B:  overshoot ──gentle spring bounce──► target
             stiffness: 45, damping: 9, mass: 1.6
-Phase C:  "ドン" 効果音と同時に
+Phase C:  効果音は鳴らさず
             ・金色 fill バーはその位置で止まり、真っ赤＋発光の縦線が確定
             ・確定時の三角と縦線が拡大 (scale 1 → 1.5 → 1.15)
-            ・正解の % が 0.5 → 1.5 → 1.0 でドン！と表示
+            ・正解の % が 0.5 → 1.5 → 1.0 で表示
             ・ゴールド fill バーの伸びがそのまま正解位置になる
 ```
 
@@ -95,7 +95,6 @@ Phase C:  "ドン" 効果音と同時に
 `web/src/lib/sounds.ts` で Web Audio API を使い、外部音源なしで合成:
 
 - `playPop()` — squareオシレータ。ピッチが 900Hz → 120Hz へ exponential ramp
-- `playReveal()` — triangle + ノイズで「ドン！」
 - `playPerfect()` — C5 → E5 → G5 → C6 のアルペジオ
 - `playGameOver()` — 下降するノコギリ波コード
 

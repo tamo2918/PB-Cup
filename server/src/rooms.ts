@@ -31,6 +31,20 @@ const TEAM_COLOR_PALETTE = [
   '#7CB6F7',
 ];
 
+const DEFAULT_ALLOWED_TEAMS = [
+  '法学部',
+  '経済学部',
+  '経営学部',
+  '理工学部',
+  '建築学部',
+  '薬学部',
+  '文芸学部',
+  '総合社会学部',
+  '国際学部',
+  '情報学部',
+  '短期大学部',
+];
+
 export interface InternalRoom {
   roomId: string;
   adminToken: string;
@@ -96,7 +110,9 @@ export function createRoom(input: {
     })),
     questionIndex: 0,
     startBalloons: clampInt(input.startBalloons, 10, 500, 100),
-    allowedTeams: (input.allowedTeams ?? []).map((s) => s.trim()).filter(Boolean),
+    allowedTeams: (input.allowedTeams?.length ? input.allowedTeams : DEFAULT_ALLOWED_TEAMS)
+      .map((s) => s.trim())
+      .filter(Boolean),
     createdAt: new Date(),
     lastActivityAt: new Date(),
     adminSocketIds: new Set(),

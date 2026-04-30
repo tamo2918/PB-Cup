@@ -164,7 +164,7 @@ export default function DisplayPage() {
     };
   }, [socket, setBurstApplied, setBurstRunning]);
 
-  // After the gauge "thump" lands, run pop animations team-by-team.
+  // After the correct answer is shown, run pop animations team-by-team.
   // We deliberately depend on (reveal, popAfterBar) only — re-running this
   // effect mid-animation (because `displayBalloons` ticks down) would
   // restart every team's pop sequence.
