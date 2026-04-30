@@ -40,7 +40,7 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Gauge bar visual — gold ticks pattern */
+/* Gauge bar visual */
 .gauge-track {
   background: repeating-linear-gradient(
     90deg,
@@ -52,13 +52,36 @@ body {
 }
 
 .gauge-fill {
+  overflow: hidden;
+  background: transparent;
+}
+
+.gauge-fill-gradient {
   background: repeating-linear-gradient(
     90deg,
-    #F2C846 0px,
-    #F2C846 18px,
-    #C99C20 18px,
-    #C99C20 22px
+    rgba(255,255,255,0.18) 0px,
+    rgba(255,255,255,0.18) 3px,
+    rgba(0,0,0,0.10) 3px,
+    rgba(0,0,0,0.10) 8px
+  ),
+  linear-gradient(
+    180deg,
+    rgba(255,255,255,0.38) 0%,
+    rgba(255,255,255,0.06) 42%,
+    rgba(0,0,0,0.20) 100%
+  ),
+  linear-gradient(
+    90deg,
+    #F8E95D 0%,
+    #F4CA36 20%,
+    #EF962E 38%,
+    #E55A28 56%,
+    #D72424 74%,
+    #B81722 100%
   );
+  box-shadow:
+    inset 0 4px 8px rgba(255,255,255,0.34),
+    inset 0 -6px 10px rgba(0,0,0,0.22);
 }
 
 /* Bouncing dots for "waiting" status */

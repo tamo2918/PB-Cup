@@ -524,11 +524,11 @@ function GameplayView({
 
   return (
     <div className="flex flex-col gap-6 flex-1">
-      {/* Top: question or correct value */}
+      {/* Top: keep the question visible even while revealing the answer */}
       <AnimatePresence mode="wait">
-        {!isReveal && question && (
+        {question && (
           <motion.div
-            key="question"
+            key={`question-${question.questionIndex}-${isReveal ? 'compact' : 'full'}`}
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
@@ -539,9 +539,13 @@ function GameplayView({
               total={question.totalQuestions}
               text={question.questionText}
               imageUrl={question.imageUrl}
+              compact={isReveal}
             />
           </motion.div>
         )}
+      </AnimatePresence>
+
+      <AnimatePresence mode="wait">
         {isReveal && reveal && (
           <motion.div
             key="reveal"
@@ -614,12 +618,39 @@ function QuestionPanel({
   total,
   text,
   imageUrl,
+  compact = false,
 }: {
   index: number;
   total: number;
   text: string;
   imageUrl?: string;
+  compact?: boolean;
 }) {
+  if (compact) {
+    return (
+      <div className="question-box mx-auto w-full max-w-6xl px-6 py-4">
+        <div className="flex items-center gap-5">
+          <div className="shrink-0 rounded-2xl bg-gauge-accent px-4 py-2 text-xl font-black text-white shadow">
+            問題 {index + 1} / {total}
+          </div>
+          {imageUrl && (
+            <div className="relative h-20 w-32 shrink-0 overflow-hidden rounded-xl border-4 border-white bg-sky-deep shadow">
+              <QuestionImage src={imageUrl} />
+            </div>
+          )}
+          <p
+            className="min-w-0 flex-1 text-2xl font-black leading-snug text-sky-deep md:text-4xl"
+            style={{
+              textShadow: '2px 2px 0 rgba(255,255,255,0.85)',
+            }}
+          >
+            {text}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <div className="flex gap-2 mb-3 justify-center">

@@ -39,9 +39,11 @@ export function GaugeBar({
   const [suspenseActive, setSuspenseActive] = useState(false);
   const [currentLabel, setCurrentLabel] = useState(0);
   const playbackRunRef = useRef(0);
+  const trackRef = useRef<HTMLDivElement | null>(null);
   const fillRef = useRef<HTMLDivElement | null>(null);
   const onCorrectShownRef = useRef(onCorrectShown);
-  const suspenseSequence = useMemo(() => makeSuspenseSequence(target), [target]);
+  const [trackWidth, setTrackWidth] = useState(0);
+  const suspenseSequence = useMemo(() => makeSuspenseSequence(target, playKey), [target, playKey]);
   const barAnimate = useMemo(() => {
     if (showCorrect) return { width: `${target}%` };
     if (suspenseActive) return { width: suspenseSequence.widths };
@@ -59,7 +61,7 @@ export function GaugeBar({
       return {
         duration: SUSPENSE_SWEEP_DURATION_S,
         times: suspenseSequence.times,
-        ease: [0.18, 0.86, 0.2, 1],
+        ease: 'linear',
       };
     }
 
@@ -69,6 +71,23 @@ export function GaugeBar({
   useEffect(() => {
     onCorrectShownRef.current = onCorrectShown;
   }, [onCorrectShown]);
+
+  useEffect(() => {
+    const el = trackRef.current;
+    if (!el) return;
+
+    const updateTrackWidth = () => setTrackWidth(el.clientWidth);
+    updateTrackWidth();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateTrackWidth);
+      return () => window.removeEventListener('resize', updateTrackWidth);
+    }
+
+    const observer = new ResizeObserver(updateTrackWidth);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const runId = playbackRunRef.current + 1;
@@ -129,11 +148,11 @@ export function GaugeBar({
   return (
     <div className="w-full">
       {/* Bar — slightly thicker, with room for tall markers above */}
-      <div className="relative w-full h-32 rounded-2xl overflow-visible">
+      <div ref={trackRef} className="relative w-full h-32 rounded-2xl overflow-visible">
         {/* Track */}
         <div className="absolute inset-0 rounded-2xl gauge-track shadow-inner" />
 
-        {/* Gold "filled portion" — this is the moving reveal animation itself */}
+        {/* Color-shifting filled portion — clipped by the moving reveal animation */}
         <motion.div
           ref={fillRef}
           data-gauge-fill
@@ -141,7 +160,12 @@ export function GaugeBar({
           style={{ width: '0%' }}
           animate={barAnimate}
           transition={barTransition}
-        />
+        >
+          <div
+            className="h-full gauge-fill-gradient"
+            style={{ width: trackWidth > 0 ? `${trackWidth}px` : '100%' }}
+          />
+        </motion.div>
 
         {/* Scale labels every 25% */}
         {[0, 25, 50, 75, 100].map((p) => (
@@ -255,13 +279,82 @@ export function GaugeBar({
   );
 }
 
-function makeSuspenseSequence(target: number): { widths: string[]; times: number[] } {
-  const finalGap = target < 30 ? 13 : target < 70 ? 10 : 6;
-  const preAnswer = target >= 98 ? 100 : clamp(target + finalGap, target + 4, 98);
+function makeSuspenseSequence(target: number, playKey: number): { widths: string[]; times: number[] } {
+  const random = makeSeededRandom(playKey * 9973 + Math.round(target) * 131);
+  const peakTime = 0.34;
+  const decoyStop = pickRandomDecoyStop(target, random);
+  const intermediateCount = randomInt(12, 16, random);
+  const fallCurve = randomBetween(0.86, 1.35, random);
+  const waveCount = randomBetween(1.25, 2.35, random);
+  const wavePhase = randomBetween(-0.2, 0.2, random);
+  const waveAmplitude = randomBetween(2.5, 6.5, random);
+  const widths = ['0%', '100%'];
+  const times = [0, peakTime];
 
-  return {
-    widths: ['0%', '100%', `${preAnswer}%`],
-    times: [0, 0.42, 1],
+  for (let i = 1; i <= intermediateCount; i++) {
+    const progress = i / (intermediateCount + 1);
+    const easedProgress = Math.pow(progress, fallCurve);
+    const base = lerp(100, decoyStop, easedProgress);
+    const wave = Math.sin((progress * waveCount + wavePhase) * Math.PI);
+    const drift = randomBetween(-0.8, 0.8, random) * (1 - progress);
+    const value = base + wave * waveAmplitude * (1 - progress * 0.58) + drift;
+    widths.push(`${clamp(value, 0, 100).toFixed(1)}%`);
+  }
+
+  widths.push(`${decoyStop}%`);
+  times.push(...makeRandomTailTimes(peakTime, intermediateCount + 1, random));
+
+  return { widths, times };
+}
+
+function pickRandomDecoyStop(target: number, random: () => number): number {
+  const roll = random();
+  const [minGap, maxGap] =
+    roll < 0.28 ? [4, 12] : roll < 0.74 ? [13, 28] : [29, 48];
+  const directions = random() < 0.5 ? [1, -1] : [-1, 1];
+
+  for (const direction of directions) {
+    const candidate = target + direction * randomBetween(minGap, maxGap, random);
+    if (candidate >= 4 && candidate <= 96) return Math.round(candidate);
+  }
+
+  const fallbackDirection = target < 50 ? 1 : -1;
+  return Math.round(clamp(target + fallbackDirection * randomBetween(minGap, maxGap, random), 4, 96));
+}
+
+function makeRandomTailTimes(startTime: number, count: number, random: () => number): number[] {
+  const weights = Array.from({ length: count }, (_, i) => {
+    const progress = i / Math.max(1, count - 1);
+    const speedBias = random() < 0.5 ? 1 + progress * 1.1 : 1.8 - progress * 0.8;
+    return randomBetween(0.88, 1.14, random) * speedBias;
+  });
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  let cursor = startTime;
+
+  return weights.map((weight, index) => {
+    if (index === weights.length - 1) return 1;
+    cursor += ((1 - startTime) * weight) / total;
+    return Number(cursor.toFixed(4));
+  });
+}
+
+function lerp(from: number, to: number, progress: number): number {
+  return from + (to - from) * progress;
+}
+
+function randomBetween(min: number, max: number, random: () => number): number {
+  return min + random() * (max - min);
+}
+
+function randomInt(min: number, max: number, random: () => number): number {
+  return Math.floor(randomBetween(min, max + 1, random));
+}
+
+function makeSeededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 0x100000000;
   };
 }
 
