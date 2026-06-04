@@ -43,6 +43,7 @@ export interface RoomSnapshot {
   roomId: string;
   phase: GamePhase;
   teams: PublicTeam[];
+  allowedTeams: string[];
   questionIndex: number;
   totalQuestions: number;
   startBalloons: number;
@@ -127,7 +128,15 @@ export interface ClientToServerEvents {
   'admin:next_question': (payload: { roomId: string; adminToken: string }) => void;
   'admin:reveal': (payload: { roomId: string; adminToken: string }) => void;
   'admin:end_game': (payload: { roomId: string; adminToken: string }) => void;
+  'admin:update_teams': (
+    payload: { roomId: string; adminToken: string; allowedTeams: string[] },
+    cb?: (res: { ok: boolean; error?: string }) => void
+  ) => void;
 
+  'room:preview': (
+    payload: { roomId: string },
+    cb?: (res: { ok: boolean; error?: string; snapshot?: RoomSnapshot }) => void
+  ) => void;
   'team:join': (
     payload: { roomId: string; teamName: string; resumeToken?: string },
     cb?: (res: { ok: boolean; error?: string; resumeToken?: string }) => void

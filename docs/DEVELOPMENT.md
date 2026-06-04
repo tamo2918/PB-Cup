@@ -28,6 +28,30 @@ pnpm dev:server   # http://0.0.0.0:3001  (Socket.io + healthz)
 pnpm dev:web      # http://0.0.0.0:3000
 ```
 
+### イベント用に外部公開する
+
+Cloudflare Quick Tunnel で外部ネットワークから参加させる場合:
+
+```bash
+pnpm event:start
+```
+
+このコマンドは `server:3001`、`web:3000`、ローカルプロキシ `8787`、Cloudflare Quick Tunnel をまとめて起動します。表示された `https://...trycloudflare.com/admin` を管理画面として使ってください。
+
+リセットして最初からやり直す場合も同じです。
+
+```bash
+pnpm event:start
+```
+
+停止だけしたい場合:
+
+```bash
+pnpm event:reset
+```
+
+詳しくは [`EVENT_TUNNEL_RUNBOOK.md`](./EVENT_TUNNEL_RUNBOOK.md) を参照。
+
 ### 環境変数
 
 `web/.env.local`:

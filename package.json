@@ -7,6 +7,10 @@
     "dev": "pnpm -r --parallel run dev",
     "dev:server": "pnpm --filter @husen/server dev",
     "dev:web": "pnpm --filter @husen/web dev",
+    "event:start": "node scripts/event-start.mjs --reset",
+    "event:dev": "node scripts/event-start.mjs",
+    "event:reset": "node scripts/event-reset.mjs",
+    "event:proxy": "node scripts/event-proxy.mjs",
     "build": "pnpm -r run build",
     "type-check": "pnpm -r run type-check",
     "lint": "pnpm --filter @husen/web run lint"

@@ -116,9 +116,7 @@ export function createRoom(input: {
     })),
     questionIndex: 0,
     startBalloons: clampInt(input.startBalloons, 10, 500, 100),
-    allowedTeams: (input.allowedTeams?.length ? input.allowedTeams : DEFAULT_ALLOWED_TEAMS)
-      .map((s) => s.trim())
-      .filter(Boolean),
+    allowedTeams: normalizeTeamNames(input.allowedTeams?.length ? input.allowedTeams : DEFAULT_ALLOWED_TEAMS),
     createdAt: new Date(),
     lastActivityAt: new Date(),
     adminSocketIds: new Set(),
@@ -215,6 +213,31 @@ export function startGame(room: InternalRoom): { ok: boolean; error?: string } {
   room.phase = 'answering';
   room.lastReveal = undefined;
   resetRoundAnswers(room);
+  return { ok: true };
+}
+
+export function updateAllowedTeams(
+  room: InternalRoom,
+  allowedTeams: string[]
+): { ok: boolean; error?: string } {
+  if (room.phase !== 'lobby') {
+    return { ok: false, error: '参加チーム候補はロビー中のみ編集できます' };
+  }
+
+  const normalized = normalizeTeamNames(allowedTeams);
+  if (normalized.length === 0) {
+    return { ok: false, error: '参加チーム候補を1つ以上登録してください' };
+  }
+
+  const seen = new Set<string>();
+  for (const name of normalized) {
+    if (name.length > 24) return { ok: false, error: 'チーム名は24文字以内で入力してください' };
+    const key = teamKey(name);
+    if (seen.has(key)) return { ok: false, error: `チーム名が重複しています: ${name}` };
+    seen.add(key);
+  }
+
+  room.allowedTeams = normalized;
   return { ok: true };
 }
 
@@ -429,6 +452,7 @@ export function getSnapshot(room: InternalRoom, opts?: { includeAnswers?: boolea
     roomId: room.roomId,
     phase: room.phase,
     teams,
+    allowedTeams: room.allowedTeams,
     questionIndex: room.questionIndex,
     totalQuestions: room.questions.length,
     startBalloons: room.startBalloons,
@@ -468,6 +492,12 @@ function resetRoundAnswers(room: InternalRoom) {
     team.currentAnswer = undefined;
     team.hasAnswered = false;
   }
+}
+
+function normalizeTeamNames(names: readonly string[] | undefined): string[] {
+  return (names ?? [])
+    .map((name) => String(name ?? '').trim())
+    .filter(Boolean);
 }
 
 function clearRevealReadyTimer(room: InternalRoom) {

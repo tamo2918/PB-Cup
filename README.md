@@ -41,7 +41,9 @@ pnpm dev
 
 ## ドキュメント
 
+- [`docs/BEGINNER_GUIDE.md`](./docs/BEGINNER_GUIDE.md) — 初心者向けのプロジェクト説明
 - [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md) — 開発手順
+- [`docs/EVENT_TUNNEL_RUNBOOK.md`](./docs/EVENT_TUNNEL_RUNBOOK.md) — Cloudflare Quick Tunnel でのイベント起動手順
 - [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — アーキテクチャと Socket.io イベント仕様
 - [`docs/GAME_FLOW.md`](./docs/GAME_FLOW.md) — ゲームのフェーズ遷移とアニメーション仕様
 

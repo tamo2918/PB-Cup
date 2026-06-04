@@ -13,12 +13,19 @@ interface QuestionDraft {
   correctAnswer: string; // keep as string for input flexibility
 }
 
+interface TeamDraft {
+  id: string;
+  name: string;
+}
+
 const newDraftId = () => Math.random().toString(36).slice(2, 9);
+const makeTeamDrafts = (names: readonly string[]): TeamDraft[] =>
+  names.map((name) => ({ id: newDraftId(), name }));
 
 const SAMPLE_QUESTIONS: QuestionDraft[] = [
   {
     id: newDraftId(),
-    text: '20代女性で格安スマホを利用している人の割合は？',
+    text: '格安スマホを利用している人の割合は？',
     imageUrl: '',
     correctAnswer: '29',
   },
@@ -39,11 +46,15 @@ const SAMPLE_QUESTIONS: QuestionDraft[] = [
 export default function AdminPage() {
   const { socket, connected } = useSocket();
   const [questions, setQuestions] = useState<QuestionDraft[]>(SAMPLE_QUESTIONS);
+  const [teamDrafts, setTeamDrafts] = useState<TeamDraft[]>(() =>
+    makeTeamDrafts(KINDAI_STUDENT_COUNCIL_TEAMS)
+  );
   const [startBalloons, setStartBalloons] = useState(100);
   const [room, setRoom] = useState<{ roomId: string; adminToken: string } | null>(null);
   const [snapshot, setSnapshot] = useState<RoomSnapshot | null>(null);
   const [ranking, setRanking] = useState<RankingEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const snapshotAllowedTeamsKey = snapshot?.allowedTeams.join('\n') ?? '';
 
   // Restore previously created room from localStorage so a refresh works.
   useEffect(() => {
@@ -88,6 +99,11 @@ export default function AdminPage() {
     };
   }, [socket]);
 
+  useEffect(() => {
+    if (!snapshotAllowedTeamsKey) return;
+    setTeamDrafts(makeTeamDrafts(snapshotAllowedTeamsKey.split('\n')));
+  }, [snapshot?.roomId, snapshotAllowedTeamsKey]);
+
   const joinUrl = useMemo(() => {
     if (!room) return '';
     if (typeof window === 'undefined') return '';
@@ -123,6 +139,12 @@ export default function AdminPage() {
   const createRoom = () => {
     setError(null);
     if (!socket) return;
+    const allowedTeams = normalizeTeamDrafts(teamDrafts);
+    const teamError = validateTeamNames(allowedTeams);
+    if (teamError) {
+      setError(teamError);
+      return;
+    }
     const payload = {
       questions: questions.map((q) => ({
         text: q.text.trim(),
@@ -130,7 +152,7 @@ export default function AdminPage() {
         correctAnswer: Number(q.correctAnswer),
       })),
       startBalloons,
-      allowedTeams: [...KINDAI_STUDENT_COUNCIL_TEAMS],
+      allowedTeams,
     };
     if (payload.questions.some((q) => !q.text)) {
       setError('問題文を全て入力してください。');
@@ -164,6 +186,36 @@ export default function AdminPage() {
     socket?.emit('admin:next_question', { roomId: room.roomId, adminToken: room.adminToken });
   const endGame = () =>
     room && socket?.emit('admin:end_game', { roomId: room.roomId, adminToken: room.adminToken });
+
+  const addTeamDraft = () =>
+    setTeamDrafts((teams) => [...teams, { id: newDraftId(), name: '' }]);
+
+  const updateTeamDraft = (id: string, name: string) =>
+    setTeamDrafts((teams) => teams.map((team) => (team.id === id ? { ...team, name } : team)));
+
+  const removeTeamDraft = (id: string) =>
+    setTeamDrafts((teams) => (teams.length <= 2 ? teams : teams.filter((team) => team.id !== id)));
+
+  const resetTeamDrafts = () => setTeamDrafts(makeTeamDrafts(KINDAI_STUDENT_COUNCIL_TEAMS));
+
+  const saveRoomTeams = () => {
+    if (!room || !socket) return;
+    setError(null);
+    const allowedTeams = normalizeTeamDrafts(teamDrafts);
+    const teamError = validateTeamNames(allowedTeams);
+    if (teamError) {
+      setError(teamError);
+      return;
+    }
+
+    socket.emit(
+      'admin:update_teams',
+      { roomId: room.roomId, adminToken: room.adminToken, allowedTeams },
+      (res) => {
+        if (!res?.ok) setError(res?.error ?? '参加チーム候補を更新できませんでした');
+      }
+    );
+  };
 
   const copyJoinUrl = async () => {
     if (!joinUrl || typeof window === 'undefined') return;
@@ -204,20 +256,13 @@ export default function AdminPage() {
           )}
 
           <section className="bg-white rounded-2xl shadow p-6 mb-4">
-            <h2 className="font-bold text-lg mb-3">参加できる学部・自治会</h2>
-            <div className="flex flex-wrap gap-2">
-              {KINDAI_STUDENT_COUNCIL_TEAMS.map((team) => (
-                <span
-                  key={team}
-                  className="rounded-full bg-sky-100 px-3 py-1 text-sm font-bold text-sky-deep"
-                >
-                  {team}
-                </span>
-              ))}
-            </div>
-            <p className="text-xs text-gray-500 mt-1">
-              参加画面では、この候補から選択して参加します
-            </p>
+            <TeamEditor
+              teams={teamDrafts}
+              onAdd={addTeamDraft}
+              onChange={updateTeamDraft}
+              onRemove={removeTeamDraft}
+              onReset={resetTeamDrafts}
+            />
           </section>
 
           <section className="bg-white rounded-2xl shadow p-6 mb-4">
@@ -392,6 +437,21 @@ export default function AdminPage() {
           </aside>
 
           <section className="md:col-span-2 space-y-3">
+            {phase === 'lobby' && (
+              <div className="bg-white rounded-2xl shadow p-4">
+                <TeamEditor
+                  teams={teamDrafts}
+                  onAdd={addTeamDraft}
+                  onChange={updateTeamDraft}
+                  onRemove={removeTeamDraft}
+                  onReset={resetTeamDrafts}
+                  onSave={saveRoomTeams}
+                  saveDisabled={!connected}
+                  compact
+                />
+              </div>
+            )}
+
             {/* Phase controls */}
             <div className="bg-white rounded-2xl shadow p-4 space-y-3">
               <h2 className="font-bold">ゲーム進行</h2>
@@ -544,6 +604,109 @@ function PreviewImage({ src }: { src: string }) {
   // Admin-provided image URLs may be local public paths or arbitrary remote URLs.
   // eslint-disable-next-line @next/next/no-img-element
   return <img src={src} alt="" className="h-32 w-full object-cover" />;
+}
+
+function TeamEditor({
+  teams,
+  onAdd,
+  onChange,
+  onRemove,
+  onReset,
+  onSave,
+  saveDisabled = false,
+  compact = false,
+}: {
+  teams: TeamDraft[];
+  onAdd: () => void;
+  onChange: (id: string, name: string) => void;
+  onRemove: (id: string) => void;
+  onReset: () => void;
+  onSave?: () => void;
+  saveDisabled?: boolean;
+  compact?: boolean;
+}) {
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className={`font-bold ${compact ? '' : 'text-lg'}`}>参加チーム候補</h2>
+          <p className="text-xs text-gray-500">
+            参加画面では、この候補から選択して参加します
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onReset}
+            className="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-200"
+          >
+            標準に戻す
+          </button>
+          <button
+            type="button"
+            onClick={onAdd}
+            className="rounded-lg bg-sky-deep px-3 py-1.5 text-xs font-bold text-white"
+          >
+            + 追加
+          </button>
+        </div>
+      </div>
+
+      <ul className="grid gap-2 md:grid-cols-2">
+        {teams.map((team, index) => (
+          <li key={team.id} className="flex items-center gap-2">
+            <span className="w-7 shrink-0 text-right text-xs font-bold text-gray-400">
+              {index + 1}
+            </span>
+            <input
+              type="text"
+              value={team.name}
+              maxLength={24}
+              onChange={(event) => onChange(team.id, event.target.value)}
+              placeholder="チーム名"
+              className="min-w-0 flex-1 rounded-lg border-2 border-gray-200 px-3 py-2 text-sm font-bold"
+            />
+            <button
+              type="button"
+              onClick={() => onRemove(team.id)}
+              disabled={teams.length <= 2}
+              className="rounded-lg bg-red-50 px-2.5 py-2 text-xs font-bold text-red-600 disabled:opacity-30"
+            >
+              削除
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      {onSave && (
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={saveDisabled}
+          className="mt-3 w-full rounded-xl bg-sky-deep py-3 text-sm font-black text-white disabled:bg-gray-300"
+        >
+          参加チーム候補を反映
+        </button>
+      )}
+    </div>
+  );
+}
+
+function normalizeTeamDrafts(teams: TeamDraft[]): string[] {
+  return teams.map((team) => team.name.trim()).filter(Boolean);
+}
+
+function validateTeamNames(names: string[]): string | null {
+  if (names.length < 2) return '参加チーム候補は2つ以上登録してください。';
+
+  const seen = new Set<string>();
+  for (const name of names) {
+    if (name.length > 24) return 'チーム名は24文字以内で入力してください。';
+    const key = name.toLowerCase();
+    if (seen.has(key)) return `チーム名が重複しています: ${name}`;
+    seen.add(key);
+  }
+  return null;
 }
 
 function fallbackCopyText(text: string) {

@@ -37,9 +37,7 @@ export default function JoinRoomPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const stored = window.localStorage.getItem(joinedTeamStorageKey(roomId));
-    if (stored && KINDAI_STUDENT_COUNCIL_TEAMS.includes(stored as typeof KINDAI_STUDENT_COUNCIL_TEAMS[number])) {
-      setTeamName(stored);
-    }
+    if (stored?.trim()) setTeamName(stored.trim());
   }, [roomId]);
 
   useEffect(() => {
@@ -60,6 +58,17 @@ export default function JoinRoomPage() {
         }
       });
     }
+  }, [socket, connected, joinedTeam, roomId]);
+
+  useEffect(() => {
+    if (!socket || !connected || joinedTeam) return;
+    socket.emit('room:preview', { roomId }, (res) => {
+      if (!res?.ok) {
+        setError(res?.error ?? 'ルーム情報を取得できませんでした');
+        return;
+      }
+      if (res.snapshot) setSnapshot(res.snapshot);
+    });
   }, [socket, connected, joinedTeam, roomId]);
 
   useEffect(() => {
@@ -151,6 +160,9 @@ export default function JoinRoomPage() {
     () => new Set(snapshot?.teams.map((t) => t.name) ?? []),
     [snapshot]
   );
+  const teamOptions = snapshot?.allowedTeams.length
+    ? snapshot.allowedTeams
+    : [...KINDAI_STUDENT_COUNCIL_TEAMS];
 
   const submit = () => {
     if (!socket || !joinedTeam) return;
@@ -217,7 +229,7 @@ export default function JoinRoomPage() {
           )}
 
           <div className="grid grid-cols-2 gap-2 mb-4">
-            {KINDAI_STUDENT_COUNCIL_TEAMS.map((team) => {
+            {teamOptions.map((team) => {
               const selected = teamName === team;
               const alreadyJoined = joinedTeams.has(team);
 

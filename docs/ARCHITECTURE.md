@@ -70,7 +70,7 @@
 | `game:waiting` | _none_ | 全員回答済み。管理者待ち |
 | `error:message` | `{ code, message }` | エラー通知 |
 | `admin:room_created` | `{ roomId, adminToken }` | ルーム作成完了 |
-| `team:joined` | `{ teamName, roomId }` | 自分が参加完了したことを通知 |
+| `team:joined` | `{ teamName, roomId, resumeToken }` | 自分が参加完了したことを通知 |
 
 ### クライアント → サーバ
 
@@ -82,14 +82,16 @@
 | `admin:reveal` | `{ roomId, adminToken }` | 正解発表 |
 | `admin:next_question` | `{ roomId, adminToken }` | 次の問題（最終問題なら終了） |
 | `admin:end_game` | `{ roomId, adminToken }` | 強制終了 |
-| `team:join` | `{ roomId, teamName }` | チーム参加 / 再接続 |
+| `admin:update_teams` | `{ roomId, adminToken, allowedTeams[] }` | ロビー中の参加チーム候補更新 |
+| `room:preview` | `{ roomId }` | 参加前にチーム候補と参加状況を購読 |
+| `team:join` | `{ roomId, teamName, resumeToken? }` | チーム参加 / 再接続 |
 | `answer:submit` | `{ roomId, teamName, answer }` | 回答送信 |
 | `display:join` | `{ roomId }` | ディスプレイがルームを購読 |
 | `display:reveal_complete` | `{ roomId, questionIndex }` | ディスプレイ側のゲージ＋バルーン演出が一通り終わったことを通知 |
 
 ## 正解発表フェーズの遷移
 
-`revealing → result` 遷移は **ディスプレイ側の演出完了 ack** または **12 秒フォールバックタイマー** のどちらか早い方でトリガされる。これは「演出中にスマホ参加者が結果画面に切り替わってしまう」のを防ぐため。
+`revealing → result` 遷移は **ディスプレイ側の演出完了 ack** または **20 秒フォールバックタイマー** のどちらか早い方でトリガされる。これは「演出中にスマホ参加者が結果画面に切り替わってしまう」のを防ぐため。
 
 ```
 admin:reveal
@@ -98,7 +100,7 @@ admin:reveal
 [server] phase = 'revealing'
    ├─ broadcast game:reveal
    ├─ broadcast room:updated  (phase: revealing)
-   └─ scheduleRevealResult(12s fallback)
+   └─ scheduleRevealResult(20s fallback)
                  │
                  │  whichever comes first ↓
                  ▼

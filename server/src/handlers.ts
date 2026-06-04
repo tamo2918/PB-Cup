@@ -19,6 +19,7 @@ import {
   startGame,
   submitAnswer,
   touchRoom,
+  updateAllowedTeams,
   type InternalRoom,
 } from './rooms.js';
 
@@ -60,6 +61,15 @@ function parseAnswerPayload(
 function parseDisplayPayload(payload: unknown): { roomId: string } | null {
   if (!isRecord(payload) || typeof payload.roomId !== 'string') return null;
   return { roomId: payload.roomId };
+}
+
+function parseAdminTeamsPayload(
+  payload: unknown
+): { roomId: string; adminToken: string; allowedTeams: string[] } | null {
+  const admin = parseAdminPayload(payload);
+  if (!admin || !isRecord(payload) || !Array.isArray(payload.allowedTeams)) return null;
+  const allowedTeams = payload.allowedTeams.filter((team): team is string => typeof team === 'string');
+  return { ...admin, allowedTeams };
 }
 
 function parseRevealCompletePayload(
@@ -256,6 +266,51 @@ export function registerHandlers(io: IO, socket: IOSocket) {
     touchRoom(room);
     emitRoomUpdate(io, room);
     io.to(room.roomId).emit('game:end', { ranking: getRanking(room) });
+  });
+
+  // ─── admin: update joinable team names ────────────────────────────────
+  socket.on('admin:update_teams', (payload, cb) => {
+    const parsed = parseAdminTeamsPayload(payload);
+    if (!parsed) {
+      cb?.({ ok: false, error: 'リクエスト形式が不正です' });
+      return;
+    }
+    const room = requireAdmin(socket, parsed);
+    if (!room) {
+      cb?.({ ok: false, error: '権限がないかルームが存在しません' });
+      return;
+    }
+    const r = updateAllowedTeams(room, parsed.allowedTeams);
+    if (!r.ok) {
+      cb?.({ ok: false, error: r.error ?? '参加チーム候補を更新できませんでした' });
+      return;
+    }
+    touchRoom(room);
+    cb?.({ ok: true });
+    emitRoomUpdate(io, room);
+  });
+
+  // ─── room: preview (read-only before selecting a team) ────────────────
+  socket.on('room:preview', (payload, cb) => {
+    const parsed = parseDisplayPayload(payload);
+    if (!parsed) {
+      cb?.({ ok: false, error: 'リクエスト形式が不正です' });
+      return;
+    }
+    const room = getRoom(parsed.roomId);
+    if (!room) {
+      cb?.({ ok: false, error: 'ルームが見つかりません' });
+      return;
+    }
+    socket.join(room.roomId);
+    if (socket.data.role !== 'team' && socket.data.role !== 'admin' && socket.data.role !== 'display') {
+      socket.data.role = 'viewer';
+      socket.data.roomId = room.roomId;
+    }
+    touchRoom(room);
+    const snapshot = getSnapshot(room);
+    cb?.({ ok: true, snapshot });
+    socket.emit('room:updated', snapshot);
   });
 
   // ─── team: join ───────────────────────────────────────────────────────
