@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { KINDAI_STUDENT_COUNCIL_TEAMS } from '@husen/shared';
+import { KINDAI_STUDENT_COUNCIL_TEAMS, TEAM_NAME_MAX_LENGTH } from '@husen/shared';
 import type { RankingEntry, RoomSnapshot } from '@husen/shared';
 import { useSocket } from '@/hooks/useSocket';
 import { QRCard } from '@/components/QRCard';
@@ -25,21 +25,21 @@ const makeTeamDrafts = (names: readonly string[]): TeamDraft[] =>
 const SAMPLE_QUESTIONS: QuestionDraft[] = [
   {
     id: newDraftId(),
-    text: '格安スマホを利用している人の割合は？',
+    text: '携帯の充電器を毎日持ち歩いている人、何％？',
     imageUrl: '',
-    correctAnswer: '29',
+    correctAnswer: '28',
   },
   {
     id: newDraftId(),
-    text: '日本人で朝食にパンを食べる人の割合は？',
+    text: '全国の企業でSNSを運用している割合は何％？',
     imageUrl: '',
-    correctAnswer: '47',
+    correctAnswer: '45',
   },
   {
     id: newDraftId(),
-    text: '大学生で月に1回以上映画館に行く人の割合は？',
+    text: '訪日外国人で最も美味しかった日本食は『寿司』と答えた人、何％',
     imageUrl: '',
-    correctAnswer: '22',
+    correctAnswer: '19',
   },
 ];
 
@@ -661,7 +661,7 @@ function TeamEditor({
             <input
               type="text"
               value={team.name}
-              maxLength={24}
+              maxLength={TEAM_NAME_MAX_LENGTH}
               onChange={(event) => onChange(team.id, event.target.value)}
               placeholder="チーム名"
               className="min-w-0 flex-1 rounded-lg border-2 border-gray-200 px-3 py-2 text-sm font-bold"
@@ -701,7 +701,9 @@ function validateTeamNames(names: string[]): string | null {
 
   const seen = new Set<string>();
   for (const name of names) {
-    if (name.length > 24) return 'チーム名は24文字以内で入力してください。';
+    if (name.length > TEAM_NAME_MAX_LENGTH) {
+      return `チーム名は${TEAM_NAME_MAX_LENGTH}文字以内で入力してください。`;
+    }
     const key = name.toLowerCase();
     if (seen.has(key)) return `チーム名が重複しています: ${name}`;
     seen.add(key);

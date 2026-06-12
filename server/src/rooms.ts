@@ -1,4 +1,5 @@
 import { customAlphabet } from 'nanoid';
+import { KINDAI_STUDENT_COUNCIL_TEAMS, TEAM_NAME_MAX_LENGTH } from '@husen/shared';
 import type {
   AnswerResult,
   GamePhase,
@@ -32,19 +33,7 @@ const TEAM_COLOR_PALETTE = [
   '#7CB6F7',
 ];
 
-const DEFAULT_ALLOWED_TEAMS = [
-  '法学部',
-  '経済学部',
-  '経営学部',
-  '理工学部',
-  '建築学部',
-  '薬学部',
-  '文芸学部',
-  '総合社会学部',
-  '国際学部',
-  '情報学部',
-  '短期大学部',
-];
+const DEFAULT_ALLOWED_TEAMS = [...KINDAI_STUDENT_COUNCIL_TEAMS];
 
 export interface InternalRoom {
   roomId: string;
@@ -146,7 +135,12 @@ export function joinTeam(
 ): { ok: true; team: Team } | { ok: false; error: string } {
   const trimmed = teamName.trim();
   if (!trimmed) return { ok: false, error: 'チーム名を入力してください' };
-  if (trimmed.length > 24) return { ok: false, error: 'チーム名が長すぎます (24文字以内)' };
+  if (trimmed.length > TEAM_NAME_MAX_LENGTH) {
+    return {
+      ok: false,
+      error: `チーム名が長すぎます (${TEAM_NAME_MAX_LENGTH}文字以内)`,
+    };
+  }
 
   if (room.allowedTeams.length > 0) {
     const found = room.allowedTeams.find((t) => t.toLowerCase() === trimmed.toLowerCase());
@@ -231,7 +225,12 @@ export function updateAllowedTeams(
 
   const seen = new Set<string>();
   for (const name of normalized) {
-    if (name.length > 24) return { ok: false, error: 'チーム名は24文字以内で入力してください' };
+    if (name.length > TEAM_NAME_MAX_LENGTH) {
+      return {
+        ok: false,
+        error: `チーム名は${TEAM_NAME_MAX_LENGTH}文字以内で入力してください`,
+      };
+    }
     const key = teamKey(name);
     if (seen.has(key)) return { ok: false, error: `チーム名が重複しています: ${name}` };
     seen.add(key);
