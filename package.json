@@ -12,6 +12,7 @@
     "event:reset": "node scripts/event-reset.mjs",
     "event:proxy": "node scripts/event-proxy.mjs",
     "build": "pnpm -r run build",
+    "test": "pnpm --filter @husen/server run test",
     "type-check": "pnpm -r run type-check",
     "lint": "pnpm --filter @husen/web run lint"
   },

@@ -5,9 +5,13 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
+    "predev": "pnpm --filter @husen/shared run build",
     "dev": "tsx watch src/index.ts",
+    "prebuild": "pnpm --filter @husen/shared run build",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
+    "pretest": "pnpm --filter @husen/shared run build",
+    "test": "node --test test/shared-runtime.test.mjs",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
