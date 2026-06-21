@@ -10,8 +10,9 @@
     "prebuild": "pnpm --filter @husen/shared run build",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "pretest": "pnpm --filter @husen/shared run build",
-    "test": "node --test test/shared-runtime.test.mjs",
+    "pretest": "pnpm run build",
+    "test": "node --test test/*.test.mjs",
+    "pretype-check": "pnpm --filter @husen/shared run build",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {

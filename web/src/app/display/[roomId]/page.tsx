@@ -4,8 +4,6 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import type {
-  AnswerResult,
-  PublicTeam,
   QuestionPayload,
   RankingEntry,
   RevealPayload,
@@ -14,14 +12,11 @@ import type {
 import { useSocket } from '@/hooks/useSocket';
 import { TeamCard } from '@/components/TeamCard';
 import { GaugeBar } from '@/components/GaugeBar';
+import { QuestionCountdown } from '@/components/QuestionCountdown';
 import { Confetti } from '@/components/Confetti';
 import { QRCard } from '@/components/QRCard';
 import { BalloonBurstShow } from '@/components/BalloonBurstShow';
-import { playGameOver, playPerfect, playPop, unlockAudio } from '@/lib/sounds';
-
-interface PoppingState {
-  [teamName: string]: number[];
-}
+import { playGameOver, playPerfect, unlockAudio } from '@/lib/sounds';
 
 const ANSWER_HOLD_BEFORE_BURST_MS = 2200;
 
@@ -34,23 +29,11 @@ export default function DisplayPage() {
   const [question, setQuestion] = useState<QuestionPayload | null>(null);
   const [reveal, setReveal] = useState<RevealPayload | null>(null);
   const [ranking, setRanking] = useState<RankingEntry[] | null>(null);
-  const [popping, setPopping] = useState<PoppingState>({});
-  const [perfectTeams, setPerfectTeams] = useState<Set<string>>(new Set());
-  const [gameOverTeams, setGameOverTeams] = useState<Set<string>>(new Set());
+  const [burstActive, setBurstActive] = useState(false);
+  const [burstPlayKey, setBurstPlayKey] = useState(0);
   const [confetti, setConfetti] = useState(false);
   const [revealKey, setRevealKey] = useState(0);
   const [audioReady, setAudioReady] = useState(false);
-
-  // Track displayed balloon counts (lags behind authoritative count for pop animations)
-  const [displayBalloons, setDisplayBalloons] = useState<Record<string, number>>({});
-
-  // Once the bar settles, we trigger pop animations.
-  const [popAfterBar, setPopAfterBar] = useState(false);
-  const [burstActive, setBurstActive] = useState(false);
-  const [burstPlayKey, setBurstPlayKey] = useState(0);
-  const [burstResultsApplied, setBurstResultsApplied] = useState(false);
-  const burstActiveRef = useRef(false);
-  const burstResultsAppliedRef = useRef(false);
   const burstDelayTimerRef = useRef<number | undefined>(undefined);
 
   // Track previous reveal so we don't replay on snapshots.
@@ -63,16 +46,10 @@ export default function DisplayPage() {
     burstDelayTimerRef.current = undefined;
   }, []);
 
-  const setBurstRunning = useCallback((running: boolean) => {
-    if (!running) clearBurstDelayTimer();
-    burstActiveRef.current = running;
-    setBurstActive(running);
+  const stopBurst = useCallback(() => {
+    clearBurstDelayTimer();
+    setBurstActive(false);
   }, [clearBurstDelayTimer]);
-
-  const setBurstApplied = useCallback((applied: boolean) => {
-    burstResultsAppliedRef.current = applied;
-    setBurstResultsApplied(applied);
-  }, []);
 
   const handleUnlockAudio = useCallback(() => {
     void unlockAudio().then((ready) => {
@@ -95,49 +72,25 @@ export default function DisplayPage() {
     if (!socket) return;
     const onRoom = (snap: RoomSnapshot) => {
       setSnapshot(snap);
-      // Sync display balloons when entering answering phase or initial connect
-      setDisplayBalloons((prev) => {
-        const out = { ...prev };
-        for (const t of snap.teams) {
-          if (out[t.name] === undefined) out[t.name] = t.balloons;
-        }
-        return out;
-      });
-      if (snap.phase === 'answering') {
+      if (snap.phase === 'reading' || snap.phase === 'answering') {
         setReveal(null);
-        setPopping({});
-        setPerfectTeams(new Set());
-        setGameOverTeams(new Set());
+        stopBurst();
         setConfetti(false);
-        setPopAfterBar(false);
-        setBurstRunning(false);
-        setBurstApplied(false);
         handledRevealLandedKey.current = '';
-        // align display balloons to authoritative
-        const fresh: Record<string, number> = {};
-        for (const t of snap.teams) fresh[t.name] = t.balloons;
-        setDisplayBalloons(fresh);
       }
       if (snap.phase === 'result' && snap.reveal) {
         setReveal((current) => current ?? snap.reveal ?? null);
-        if (!burstActiveRef.current && !burstResultsAppliedRef.current) {
-          setPopAfterBar(true);
-        }
       }
       if (snap.phase === 'finished') {
+        stopBurst();
         setRanking(snap.ranking ?? []);
       }
     };
     const onQuestion = (q: QuestionPayload) => {
       setQuestion(q);
       setReveal(null);
-      setPopping({});
-      setPerfectTeams(new Set());
-      setGameOverTeams(new Set());
+      stopBurst();
       setConfetti(false);
-      setPopAfterBar(false);
-      setBurstRunning(false);
-      setBurstApplied(false);
       handledRevealLandedKey.current = '';
     };
     const onReveal = (r: RevealPayload) => {
@@ -146,10 +99,8 @@ export default function DisplayPage() {
       lastRevealKey.current = key;
       handledRevealLandedKey.current = '';
       setReveal(r);
+      stopBurst();
       setRevealKey((k) => k + 1);
-      setPopAfterBar(false);
-      setBurstRunning(false);
-      setBurstApplied(false);
     };
     const onEnd = (p: { ranking: RankingEntry[] }) => setRanking(p.ranking);
     socket.on('room:updated', onRoom);
@@ -162,86 +113,7 @@ export default function DisplayPage() {
       socket.off('game:reveal', onReveal);
       socket.off('game:end', onEnd);
     };
-  }, [socket, setBurstApplied, setBurstRunning]);
-
-  // After the correct answer is shown, run pop animations team-by-team.
-  // We deliberately depend on (reveal, popAfterBar) only — re-running this
-  // effect mid-animation (because `displayBalloons` ticks down) would
-  // restart every team's pop sequence.
-  useEffect(() => {
-    if (!reveal || !popAfterBar || burstResultsApplied) return;
-    let cancelled = false;
-
-    const runForTeam = async (res: AnswerResult, baseDelay: number) => {
-      // Use the authoritative pre-pop count from the server payload.
-      const initialVisible = res.balloonsBefore;
-      const toPop = res.popped;
-      const indexes = Array.from({ length: toPop }, (_, i) => initialVisible - 1 - i).filter(
-        (i) => i >= 0
-      );
-
-      const stagger = Math.max(20, 80 - res.popped * 1.5);
-
-      await wait(baseDelay);
-      if (cancelled) return;
-
-      for (let i = 0; i < indexes.length; i++) {
-        if (cancelled) return;
-        const idx = indexes[i]!;
-        setPopping((p) => ({
-          ...p,
-          [res.teamName]: [...(p[res.teamName] ?? []), idx],
-        }));
-        playPop();
-        await wait(stagger);
-        setDisplayBalloons((b) => ({
-          ...b,
-          [res.teamName]: Math.max(0, (b[res.teamName] ?? initialVisible) - 1),
-        }));
-        setPopping((p) => ({
-          ...p,
-          [res.teamName]: (p[res.teamName] ?? []).filter((x) => x !== idx),
-        }));
-      }
-
-      if (res.bonus > 0) {
-        await wait(200);
-        for (let i = 0; i < res.bonus; i++) {
-          if (cancelled) return;
-          setDisplayBalloons((b) => ({
-            ...b,
-            [res.teamName]: (b[res.teamName] ?? 0) + 1,
-          }));
-          await wait(40);
-        }
-        setPerfectTeams((s) => new Set(s).add(res.teamName));
-        playPerfect();
-      }
-
-      if (res.eliminated) {
-        await wait(200);
-        if (cancelled) return;
-        setGameOverTeams((s) => new Set(s).add(res.teamName));
-        playGameOver();
-      }
-    };
-
-    reveal.results.forEach((res, i) => {
-      void runForTeam(res, i * 100);
-    });
-
-    let confettiTimeout: number | undefined;
-    if (reveal.results.some((r) => r.perfect)) {
-      confettiTimeout = window.setTimeout(() => {
-        setConfetti(true);
-        window.setTimeout(() => setConfetti(false), 3500);
-      }, 800);
-    }
-    return () => {
-      cancelled = true;
-      if (confettiTimeout) window.clearTimeout(confettiTimeout);
-    };
-  }, [reveal, popAfterBar, burstResultsApplied]);
+  }, [socket, stopBurst]);
 
   const phase = snapshot?.phase;
   const teams = snapshot?.teams ?? [];
@@ -263,10 +135,7 @@ export default function DisplayPage() {
   );
 
   const handleRevealLanded = useCallback(() => {
-    if (!reveal) {
-      setPopAfterBar(true);
-      return;
-    }
+    if (!reveal) return;
 
     const revealLandedKey = `${reveal.questionIndex}-${reveal.correctAnswer}-${reveal.results.length}`;
     if (handledRevealLandedKey.current === revealLandedKey) return;
@@ -274,51 +143,24 @@ export default function DisplayPage() {
 
     clearBurstDelayTimer();
     if (reveal.results.length > 0) {
-      setBurstApplied(false);
-      // Block result cards while the answer remains on screen for readability.
-      burstActiveRef.current = true;
-      setBurstActive(false);
       burstDelayTimerRef.current = window.setTimeout(() => {
         burstDelayTimerRef.current = undefined;
         setBurstActive(true);
         setBurstPlayKey((key) => key + 1);
       }, ANSWER_HOLD_BEFORE_BURST_MS);
-    } else {
-      setPopAfterBar(true);
     }
+
     if (socket) {
       socket.emit('display:reveal_complete', {
         roomId,
         questionIndex: reveal.questionIndex,
       });
     }
-  }, [clearBurstDelayTimer, setBurstApplied, socket, reveal, roomId]);
-
-  const handleBurstPop = useCallback((teamName: string, remaining: number) => {
-    setDisplayBalloons((balloons) => ({
-      ...balloons,
-      [teamName]: remaining,
-    }));
-  }, []);
+  }, [clearBurstDelayTimer, socket, reveal, roomId]);
 
   const handleBurstComplete = useCallback(() => {
-    setBurstRunning(false);
-    if (!reveal) {
-      setPopAfterBar(true);
-      return;
-    }
-
-    setDisplayBalloons((balloons) => {
-      const next = { ...balloons };
-      for (const result of reveal.results) {
-        next[result.teamName] = result.balloonsAfter;
-      }
-      return next;
-    });
-    setPerfectTeams(new Set(reveal.results.filter((result) => result.perfect).map((result) => result.teamName)));
-    setGameOverTeams(new Set(reveal.results.filter((result) => result.eliminated).map((result) => result.teamName)));
-    setBurstApplied(true);
-    setPopAfterBar(true);
+    setBurstActive(false);
+    if (!reveal) return;
 
     if (reveal.results.some((result) => result.perfect)) {
       setConfetti(true);
@@ -328,10 +170,7 @@ export default function DisplayPage() {
     if (reveal.results.some((result) => result.eliminated)) {
       playGameOver();
     }
-  }, [reveal, setBurstApplied, setBurstRunning]);
-
-  // Display balloon count helper (post-pop animation)
-  const balloonsFor = (t: PublicTeam) => displayBalloons[t.name] ?? t.balloons;
+  }, [reveal]);
 
   const joinUrl =
     typeof window !== 'undefined' ? `${window.location.origin}/join/${roomId}` : '';
@@ -339,7 +178,7 @@ export default function DisplayPage() {
   return (
     <main className="display-bg min-h-screen overflow-hidden relative" onClick={handleUnlockAudio}>
       <Confetti active={confetti} />
-      {!audioReady && (
+      {!audioReady && phase !== 'lobby' && (
         <button
           type="button"
           onClick={(event) => {
@@ -360,53 +199,34 @@ export default function DisplayPage() {
         results={reveal?.results ?? []}
         teams={teams}
         startBalloons={snapshot?.startBalloons ?? 100}
-        onPop={handleBurstPop}
         onComplete={handleBurstComplete}
       />
-
-      {phase === 'lobby' && (
-        <div className="absolute left-5 top-5 z-20">
-          <div className="rounded-2xl border-4 border-white/80 bg-white/55 px-5 py-3 text-sky-deep shadow-xl backdrop-blur-md">
-            <div className="text-xs font-black tracking-[0.28em] text-sky-deep/65">
-              KINDAI UNIVERSITY
-            </div>
-            <div className="mt-0.5 text-2xl font-black drop-shadow-[0_2px_0_#FFFFFF] md:text-3xl">
-              情報学部自治会
-            </div>
-          </div>
-        </div>
+      {/* Top bar */}
+      {phase !== 'lobby' && (
+        <header className="absolute top-3 right-3 flex items-center gap-2 z-20">
+          <span className="text-xs px-2 py-1 rounded bg-white/40 text-sky-deep font-bold">
+            ROOM {roomId}
+          </span>
+          <span
+            className={`text-xs px-2 py-1 rounded ${
+              connected ? 'bg-emerald-200 text-emerald-800' : 'bg-amber-200 text-amber-800'
+            }`}
+          >
+            {connected ? '🟢' : '🟡'}
+          </span>
+        </header>
       )}
 
-      {/* Top bar */}
-      <header className="absolute top-3 right-3 flex items-center gap-2 z-20">
-        <span className="text-xs px-2 py-1 rounded bg-white/40 text-sky-deep font-bold">
-          ROOM {roomId}
-        </span>
-        <span
-          className={`text-xs px-2 py-1 rounded ${
-            connected ? 'bg-emerald-200 text-emerald-800' : 'bg-amber-200 text-amber-800'
-          }`}
-        >
-          {connected ? '🟢' : '🟡'}
-        </span>
-      </header>
-
       {/* Decorative balloons floating up at edges */}
-      <DecorativeBalloons />
+      {phase !== 'lobby' && <DecorativeBalloons />}
 
       <div className="relative z-10 p-6 md:p-10 min-h-screen flex flex-col">
         {/* Lobby */}
-        {phase === 'lobby' && (
-          <LobbyView
-            roomId={roomId}
-            joinUrl={joinUrl}
-            teams={teams}
-            startBalloons={snapshot?.startBalloons ?? 100}
-          />
-        )}
+        {phase === 'lobby' && <LobbyView joinUrl={joinUrl} />}
 
         {/* Active gameplay */}
-        {(phase === 'answering' ||
+        {(phase === 'reading' ||
+          phase === 'answering' ||
           phase === 'waiting' ||
           phase === 'revealing' ||
           phase === 'result') && (
@@ -420,17 +240,14 @@ export default function DisplayPage() {
                     questionText: snapshot.currentQuestion.text,
                     imageUrl: snapshot.currentQuestion.imageUrl,
                     totalQuestions: snapshot.totalQuestions,
+                    questionStartedAt: snapshot.questionStartedAt,
+                    answerDeadline: snapshot.answerDeadline,
                   }
                 : null)
             }
             reveal={reveal}
-            popping={popping}
-            perfectTeams={perfectTeams}
-            gameOverTeams={gameOverTeams}
-            balloonsFor={balloonsFor}
             teamAnswers={teamAnswers}
             revealKey={revealKey}
-            showTeamResults={popAfterBar}
             onRevealLanded={handleRevealLanded}
           />
         )}
@@ -446,62 +263,10 @@ export default function DisplayPage() {
 
 // ─── Subviews ─────────────────────────────────────────────────────────────
 
-function LobbyView({
-  roomId,
-  joinUrl,
-  teams,
-  startBalloons,
-}: {
-  roomId: string;
-  joinUrl: string;
-  teams: PublicTeam[];
-  startBalloons: number;
-}) {
+function LobbyView({ joinUrl }: { joinUrl: string }) {
   return (
-    <div className="flex flex-col items-center justify-center flex-1 gap-8">
-      <h1 className="text-5xl md:text-7xl font-black text-sky-deep drop-shadow-[0_4px_0_#FFFFFFA0]">
-        🎈 パーセントバルーン
-      </h1>
-      <p className="text-xl text-sky-deep/80">スマホで参加 → 大画面で観戦</p>
-
-      <div className="flex flex-col md:flex-row gap-10 items-center">
-        <QRCard url={joinUrl} label="QRで参加" size={380} />
-        <div className="bg-white/95 rounded-3xl shadow-2xl px-10 py-8 text-center">
-          <div className="text-sm text-gray-500">ルームID</div>
-          <div className="text-8xl font-black tracking-widest text-gauge-accent my-2">
-            {roomId}
-          </div>
-          <div className="text-base text-gray-500">初期風船 🎈 {startBalloons}</div>
-        </div>
-      </div>
-
-      <div className="w-full max-w-5xl">
-        <h2 className="text-2xl font-black text-sky-deep mb-3 text-center dot-pulse">
-          参加チーム ({teams.length})
-        </h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {teams.map((t) => (
-            <motion.div
-              layout
-              key={t.name}
-              initial={{ opacity: 0, scale: 0.8, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              className="bg-white/95 rounded-xl px-4 py-3 shadow flex flex-col items-center"
-            >
-              <span className="text-2xl">🎈</span>
-              <strong className="text-sky-deep">{t.name}</strong>
-              <span className="text-xs text-gray-500">
-                {t.online ? '🟢 接続中' : '⚪ オフライン'}
-              </span>
-            </motion.div>
-          ))}
-          {teams.length === 0 && (
-            <div className="col-span-full text-center text-sky-deep/70 py-6">
-              参加者をお待ちしています…
-            </div>
-          )}
-        </div>
-      </div>
+    <div className="flex flex-1 items-center justify-center">
+      <QRCard url={joinUrl} label="参加用QRコード" size={480} showDetails={false} />
     </div>
   );
 }
@@ -510,30 +275,22 @@ function GameplayView({
   snapshot,
   question,
   reveal,
-  popping,
-  perfectTeams,
-  gameOverTeams,
-  balloonsFor,
   teamAnswers,
   revealKey,
-  showTeamResults,
   onRevealLanded,
 }: {
   snapshot: RoomSnapshot;
   question: QuestionPayload | null;
   reveal: RevealPayload | null;
-  popping: PoppingState;
-  perfectTeams: Set<string>;
-  gameOverTeams: Set<string>;
-  balloonsFor: (t: PublicTeam) => number;
   teamAnswers: { teamName: string; answer: number; color: string }[];
   revealKey: number;
-  showTeamResults: boolean;
   onRevealLanded: () => void;
 }) {
   const teams = snapshot.teams;
   const phase = snapshot.phase;
   const isReveal = phase === 'revealing' || phase === 'result' || !!reveal;
+  const activeTeams = teams.filter((team) => !team.eliminated);
+  const allAnswered = activeTeams.length > 0 && activeTeams.every((team) => team.hasAnswered);
 
   return (
     <div className="flex flex-col gap-6 flex-1">
@@ -552,6 +309,9 @@ function GameplayView({
               total={question.totalQuestions}
               text={question.questionText}
               imageUrl={question.imageUrl}
+              answerDeadline={question.answerDeadline}
+              answerPending={phase === 'reading'}
+              answerClosed={phase === 'waiting'}
               compact={isReveal}
             />
           </motion.div>
@@ -580,30 +340,15 @@ function GameplayView({
         )}
       </AnimatePresence>
 
-      {/* Team grid */}
-      <div className="flex-1 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 items-start">
-        {teams.map((t) => {
-          const result = reveal?.results.find((r) => r.teamName === t.name);
-          const showAnswer = showTeamResults && !!result;
-          const hidePendingElimination = !!result?.eliminated && !showTeamResults;
-          const visible = balloonsFor(t);
-          return (
+      {/* Team status is useful while answering, but stays hidden during the answer reveal. */}
+      {!isReveal && (
+        <div className="flex-1 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 items-start">
+          {teams.map((t) => (
             <TeamCard
               key={t.name}
-              team={{
-                ...t,
-                // Display lagging balloon count for animation
-                balloons: visible,
-                eliminated: hidePendingElimination ? false : t.eliminated,
-                currentAnswer: showAnswer ? result?.answer : undefined,
-              }}
+              team={t}
               startBalloons={snapshot.startBalloons}
-              showAnswer={showAnswer}
-              diff={showAnswer ? result?.diff : undefined}
-              poppingIndexes={popping[t.name] ?? []}
               highlight={t.hasAnswered && phase === 'waiting'}
-              perfect={perfectTeams.has(t.name)}
-              gameOver={gameOverTeams.has(t.name)}
               badgeText={
                 phase === 'answering'
                   ? t.hasAnswered
@@ -612,14 +357,16 @@ function GameplayView({
                   : undefined
               }
             />
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* Bottom hint */}
       {phase === 'waiting' && !reveal && (
         <div className="text-center text-yellow-300 font-black text-2xl drop-shadow">
-          🎉 全員回答完了！正解発表をお待ちください
+          {allAnswered
+            ? '🎉 全員回答完了！正解発表をお待ちください'
+            : '⏱ 回答時間終了！正解発表をお待ちください'}
         </div>
       )}
     </div>
@@ -631,12 +378,18 @@ function QuestionPanel({
   total,
   text,
   imageUrl,
+  answerDeadline,
+  answerPending,
+  answerClosed,
   compact = false,
 }: {
   index: number;
   total: number;
   text: string;
   imageUrl?: string;
+  answerDeadline?: number;
+  answerPending?: boolean;
+  answerClosed?: boolean;
   compact?: boolean;
 }) {
   if (compact) {
@@ -706,6 +459,13 @@ function QuestionPanel({
           </p>
         </div>
       )}
+      <div className="mt-4">
+        <QuestionCountdown
+          deadline={answerDeadline}
+          pending={answerPending}
+          closed={answerClosed}
+        />
+      </div>
     </div>
   );
 }
@@ -787,8 +547,4 @@ function DecorativeBalloons() {
       ))}
     </div>
   );
-}
-
-function wait(ms: number) {
-  return new Promise<void>((r) => window.setTimeout(r, ms));
 }

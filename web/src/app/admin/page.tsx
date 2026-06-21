@@ -5,6 +5,7 @@ import { KINDAI_STUDENT_COUNCIL_TEAMS, TEAM_NAME_MAX_LENGTH } from '@husen/share
 import type { RankingEntry, RoomSnapshot } from '@husen/shared';
 import { useSocket } from '@/hooks/useSocket';
 import { QRCard } from '@/components/QRCard';
+import { QuestionCountdown } from '@/components/QuestionCountdown';
 
 interface QuestionDraft {
   id: string;
@@ -179,6 +180,12 @@ export default function AdminPage() {
 
   const startGame = () =>
     room && socket?.emit('admin:start_game', { roomId: room.roomId, adminToken: room.adminToken });
+  const startAnswering = () =>
+    room &&
+    socket?.emit('admin:start_answering', {
+      roomId: room.roomId,
+      adminToken: room.adminToken,
+    });
   const reveal = () =>
     room && socket?.emit('admin:reveal', { roomId: room.roomId, adminToken: room.adminToken });
   const nextQuestion = () =>
@@ -376,11 +383,8 @@ export default function AdminPage() {
 
   const phase = snapshot?.phase;
   const teams = snapshot?.teams ?? [];
-  const allAnswered =
-    phase === 'waiting' ||
-    (phase === 'answering' &&
-      teams.length > 0 &&
-      teams.filter((t) => !t.eliminated).every((t) => t.hasAnswered));
+  const activeTeams = teams.filter((team) => !team.eliminated);
+  const allAnswered = activeTeams.length > 0 && activeTeams.every((team) => team.hasAnswered);
 
   return (
     <main className="min-h-screen bg-gray-50 p-4 md:p-8">
@@ -464,20 +468,48 @@ export default function AdminPage() {
                   ゲームスタート ({teams.length}/2 以上)
                 </button>
               )}
+              {phase === 'reading' && (
+                <>
+                  <QuestionCountdown pending compact />
+                  <div className="rounded-lg bg-sky-50 py-2 text-center font-bold text-sky-deep">
+                    問題の読み上げ中
+                  </div>
+                  <button
+                    onClick={startAnswering}
+                    className="w-full rounded-xl bg-sky-deep py-4 text-xl font-black text-white"
+                  >
+                    回答スタート（10秒）
+                  </button>
+                </>
+              )}
               {(phase === 'answering' || phase === 'waiting') && (
                 <>
+                  <QuestionCountdown
+                    deadline={snapshot?.answerDeadline}
+                    closed={phase === 'waiting'}
+                    compact
+                  />
                   <div
                     className={`text-center py-2 rounded-lg ${
                       allAnswered ? 'bg-emerald-100 text-emerald-700 font-bold' : 'bg-gray-50'
                     }`}
                   >
-                    {allAnswered ? '🎉 全員回答済み！' : '回答受付中…'}
+                    {allAnswered
+                      ? '🎉 全員回答済み！'
+                      : phase === 'waiting'
+                        ? '回答時間が終了しました'
+                        : '回答受付中…'}
                   </div>
                   <button
                     onClick={reveal}
-                    className="w-full py-4 bg-gauge-accent text-white font-black text-xl rounded-xl"
+                    disabled={phase !== 'waiting' || snapshot?.finalizingAnswers}
+                    className="w-full py-4 bg-gauge-accent text-white font-black text-xl rounded-xl disabled:bg-gray-300"
                   >
-                    正解を発表する 🎯
+                    {snapshot?.finalizingAnswers
+                      ? '最終回答を取得中…'
+                      : phase === 'waiting'
+                        ? '正解を発表する 🎯'
+                        : '回答時間の終了を待っています'}
                   </button>
                 </>
               )}

@@ -6,7 +6,9 @@ import type {
 } from '@husen/shared';
 import {
   createRoom,
+  closeAnsweringIfExpired,
   endGame,
+  finalizeAnswer,
   getRanking,
   getRoom,
   getSnapshot,
@@ -15,11 +17,15 @@ import {
   markOffline,
   nextQuestion,
   revealAnswer,
+  scheduleAnswerDeadline,
+  scheduleAnswerFinalization,
   scheduleRevealResult,
+  startAnswering,
   startGame,
   submitAnswer,
   touchRoom,
   updateAllowedTeams,
+  updateAnswer,
   type InternalRoom,
 } from './rooms.js';
 
@@ -56,6 +62,31 @@ function parseAnswerPayload(
   const numericAnswer = Number(answer);
   if (!Number.isFinite(numericAnswer)) return null;
   return { roomId, teamName, answer: numericAnswer };
+}
+
+function parseAnswerUpdatePayload(
+  payload: unknown
+): { roomId: string; teamName: string; answer: number | null } | null {
+  if (!isRecord(payload)) return null;
+  const { roomId, teamName, answer } = payload;
+  if (typeof roomId !== 'string' || typeof teamName !== 'string') return null;
+  if (answer === null) return { roomId, teamName, answer };
+  const numericAnswer = Number(answer);
+  if (!Number.isFinite(numericAnswer)) return null;
+  return { roomId, teamName, answer: numericAnswer };
+}
+
+function parseAnswerFinalizationPayload(payload: unknown): {
+  roomId: string;
+  teamName: string;
+  questionIndex: number;
+  answer: number | null;
+} | null {
+  const answerPayload = parseAnswerUpdatePayload(payload);
+  if (!answerPayload || !isRecord(payload)) return null;
+  const questionIndex = Number(payload.questionIndex);
+  if (!Number.isInteger(questionIndex)) return null;
+  return { ...answerPayload, questionIndex };
 }
 
 function parseDisplayPayload(payload: unknown): { roomId: string } | null {
@@ -99,7 +130,17 @@ function makeQuestionPayload(room: InternalRoom): QuestionPayload | null {
     questionText: q.text,
     imageUrl: q.imageUrl,
     totalQuestions: room.questions.length,
+    questionStartedAt: room.questionStartedAt,
+    answerDeadline: room.answerDeadline,
   };
+}
+
+function scheduleQuestionDeadline(io: IO, room: InternalRoom) {
+  scheduleAnswerDeadline(room, () => {
+    touchRoom(room);
+    emitRoomUpdate(io, room);
+    io.to(room.roomId).emit('game:waiting');
+  });
 }
 
 function requireAdmin(
@@ -204,6 +245,29 @@ export function registerHandlers(io: IO, socket: IOSocket) {
     broadcastQuestion(io, room);
   });
 
+  // ─── admin: start answering ───────────────────────────────────────────
+  socket.on('admin:start_answering', (payload) => {
+    const parsed = parseAdminPayload(payload);
+    if (!parsed) {
+      socket.emit('error:message', { code: 'BAD_REQUEST', message: 'リクエスト形式が不正です' });
+      return;
+    }
+    const room = requireAdmin(socket, parsed);
+    if (!room) return;
+    const r = startAnswering(room);
+    if (!r.ok) {
+      socket.emit('error:message', {
+        code: 'ANSWER_START_FAIL',
+        message: r.error ?? '回答開始失敗',
+      });
+      return;
+    }
+    touchRoom(room);
+    emitRoomUpdate(io, room);
+    broadcastQuestion(io, room);
+    scheduleQuestionDeadline(io, room);
+  });
+
   // ─── admin: reveal ────────────────────────────────────────────────────
   socket.on('admin:reveal', (payload) => {
     const parsed = parseAdminPayload(payload);
@@ -213,19 +277,30 @@ export function registerHandlers(io: IO, socket: IOSocket) {
     }
     const room = requireAdmin(socket, parsed);
     if (!room) return;
-    const r = revealAnswer(room);
-    if (!r.ok || !r.payload) {
-      socket.emit('error:message', { code: 'REVEAL_FAIL', message: r.error ?? '発表失敗' });
+    const scheduled = scheduleAnswerFinalization(room, () => {
+      const result = revealAnswer(room);
+      if (!result.ok || !result.payload) return;
+      touchRoom(room);
+      io.to(room.roomId).emit('game:reveal', result.payload);
+      // After clients consume the reveal animation, server still emits a snapshot
+      // so that latecomers / reconnectors can recover state.
+      emitRoomUpdate(io, room);
+      scheduleRevealResult(room, () => {
+        touchRoom(room);
+        emitRoomUpdate(io, room);
+      });
+    });
+    if (!scheduled.ok) {
+      socket.emit('error:message', {
+        code: 'REVEAL_FAIL',
+        message: scheduled.error ?? '発表失敗',
+      });
       return;
     }
     touchRoom(room);
-    io.to(room.roomId).emit('game:reveal', r.payload);
-    // After clients consume the reveal animation, server still emits a snapshot
-    // so that latecomers / reconnectors can recover state.
     emitRoomUpdate(io, room);
-    scheduleRevealResult(room, () => {
-      touchRoom(room);
-      emitRoomUpdate(io, room);
+    io.to(room.roomId).emit('answer:finalize_requested', {
+      questionIndex: room.questionIndex,
     });
   });
 
@@ -354,7 +429,7 @@ export function registerHandlers(io: IO, socket: IOSocket) {
     emitRoomUpdate(io, room);
     // If a question is currently active, send the current question to the
     // (re)joining team so they can answer right away.
-    if (room.phase === 'answering' || room.phase === 'waiting') {
+    if (room.phase === 'reading' || room.phase === 'answering' || room.phase === 'waiting') {
       const questionPayload = makeQuestionPayload(room);
       if (questionPayload) socket.emit('game:question', questionPayload);
     }
@@ -378,6 +453,13 @@ export function registerHandlers(io: IO, socket: IOSocket) {
       cb?.({ ok: false, error: 'チームの認証に失敗しました' });
       return;
     }
+    if (closeAnsweringIfExpired(room)) {
+      touchRoom(room);
+      cb?.({ ok: false, error: '回答時間が終了しました' });
+      emitRoomUpdate(io, room);
+      io.to(room.roomId).emit('game:waiting');
+      return;
+    }
     const r = submitAnswer(room, parsed.teamName, parsed.answer);
     if (!r.ok) {
       cb?.({ ok: false, error: r.error });
@@ -389,6 +471,73 @@ export function registerHandlers(io: IO, socket: IOSocket) {
     if (r.allAnswered) {
       io.to(room.roomId).emit('game:waiting');
     }
+  });
+
+  // ─── answer: update current input ─────────────────────────────────────
+  socket.on('answer:update', (payload, cb) => {
+    const parsed = parseAnswerUpdatePayload(payload);
+    if (!parsed) {
+      cb?.({ ok: false, error: 'リクエスト形式が不正です' });
+      return;
+    }
+    const room = getRoom(parsed.roomId);
+    if (!room) {
+      cb?.({ ok: false, error: 'ルームが見つかりません' });
+      return;
+    }
+    const team = room.teams.get(parsed.teamName.trim().toLowerCase());
+    if (!team || team.socketId !== socket.id) {
+      cb?.({ ok: false, error: 'チームの認証に失敗しました' });
+      return;
+    }
+    if (closeAnsweringIfExpired(room)) {
+      touchRoom(room);
+      cb?.({ ok: false, error: '回答時間が終了しました' });
+      emitRoomUpdate(io, room);
+      io.to(room.roomId).emit('game:waiting');
+      return;
+    }
+
+    const result = updateAnswer(room, parsed.teamName, parsed.answer);
+    if (!result.ok) {
+      cb?.({ ok: false, error: result.error });
+      return;
+    }
+    touchRoom(room);
+    cb?.({ ok: true });
+    emitRoomUpdate(io, room);
+  });
+
+  // ─── answer: finalize current input before reveal ─────────────────────
+  socket.on('answer:finalize', (payload, cb) => {
+    const parsed = parseAnswerFinalizationPayload(payload);
+    if (!parsed) {
+      cb?.({ ok: false, error: 'リクエスト形式が不正です' });
+      return;
+    }
+    const room = getRoom(parsed.roomId);
+    if (!room) {
+      cb?.({ ok: false, error: 'ルームが見つかりません' });
+      return;
+    }
+    const team = room.teams.get(parsed.teamName.trim().toLowerCase());
+    if (!team || team.socketId !== socket.id) {
+      cb?.({ ok: false, error: 'チームの認証に失敗しました' });
+      return;
+    }
+    const result = finalizeAnswer(
+      room,
+      parsed.teamName,
+      parsed.questionIndex,
+      parsed.answer
+    );
+    if (!result.ok) {
+      cb?.({ ok: false, error: result.error });
+      return;
+    }
+    touchRoom(room);
+    cb?.({ ok: true });
+    emitRoomUpdate(io, room);
   });
 
   // ─── display: join (for big-screen view) ──────────────────────────────
@@ -409,7 +558,7 @@ export function registerHandlers(io: IO, socket: IOSocket) {
     room.displaySocketIds.add(socket.id);
     cb?.({ ok: true });
     socket.emit('room:updated', getSnapshot(room));
-    if (room.phase === 'answering' || room.phase === 'waiting') {
+    if (room.phase === 'reading' || room.phase === 'answering' || room.phase === 'waiting') {
       const questionPayload = makeQuestionPayload(room);
       if (questionPayload) socket.emit('game:question', questionPayload);
     }

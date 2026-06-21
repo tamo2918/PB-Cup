@@ -4,6 +4,7 @@
 
 export type GamePhase =
   | 'lobby'
+  | 'reading'
   | 'answering'
   | 'waiting'
   | 'revealing'
@@ -47,6 +48,9 @@ export interface RoomSnapshot {
   questionIndex: number;
   totalQuestions: number;
   startBalloons: number;
+  questionStartedAt?: number;
+  answerDeadline?: number;
+  finalizingAnswers?: boolean;
   currentQuestion?: { text: string; imageUrl?: string };
   // Filled when in `revealing` / `result` / `finished`
   reveal?: RevealPayload;
@@ -58,6 +62,8 @@ export interface QuestionPayload {
   questionText: string;
   imageUrl?: string;
   totalQuestions: number;
+  questionStartedAt?: number;
+  answerDeadline?: number;
 }
 
 export interface AnswerResult {
@@ -86,6 +92,7 @@ export interface RankingEntry {
 }
 
 export const TEAM_NAME_MAX_LENGTH = 32;
+export const QUESTION_TIME_LIMIT_MS = 10_000;
 
 // 近畿大学の中央執行委員会・自治会などの参加候補。
 export const KINDAI_STUDENT_COUNCIL_TEAMS = [
@@ -121,6 +128,7 @@ export interface ServerToClientEvents {
   'game:reveal': (payload: RevealPayload) => void;
   'game:end': (payload: { ranking: RankingEntry[] }) => void;
   'game:waiting': () => void;
+  'answer:finalize_requested': (payload: { questionIndex: number }) => void;
   'error:message': (payload: { code: string; message: string }) => void;
   'admin:room_created': (payload: { roomId: string; adminToken: string }) => void;
   'team:joined': (payload: { teamName: string; roomId: string; resumeToken: string }) => void;
@@ -136,6 +144,7 @@ export interface ClientToServerEvents {
     cb?: (res: { ok: boolean; error?: string }) => void
   ) => void;
   'admin:start_game': (payload: { roomId: string; adminToken: string }) => void;
+  'admin:start_answering': (payload: { roomId: string; adminToken: string }) => void;
   'admin:next_question': (payload: { roomId: string; adminToken: string }) => void;
   'admin:reveal': (payload: { roomId: string; adminToken: string }) => void;
   'admin:end_game': (payload: { roomId: string; adminToken: string }) => void;
@@ -154,6 +163,19 @@ export interface ClientToServerEvents {
   ) => void;
   'answer:submit': (
     payload: { roomId: string; teamName: string; answer: number },
+    cb?: (res: { ok: boolean; error?: string }) => void
+  ) => void;
+  'answer:update': (
+    payload: { roomId: string; teamName: string; answer: number | null },
+    cb?: (res: { ok: boolean; error?: string }) => void
+  ) => void;
+  'answer:finalize': (
+    payload: {
+      roomId: string;
+      teamName: string;
+      questionIndex: number;
+      answer: number | null;
+    },
     cb?: (res: { ok: boolean; error?: string }) => void
   ) => void;
 

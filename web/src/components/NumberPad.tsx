@@ -5,17 +5,15 @@ import { motion } from 'framer-motion';
 interface NumberPadProps {
   value: string;
   onChange: (v: string) => void;
-  onSubmit: () => void;
   disabled?: boolean;
-  submitting?: boolean;
 }
 
-const KEYS: (string | 'DEL' | 'GO')[] = [
+const KEYS = [
   '1', '2', '3', '4', '5',
   '6', '7', '8', '9', '0',
-];
+] as const;
 
-export function NumberPad({ value, onChange, onSubmit, disabled, submitting }: NumberPadProps) {
+export function NumberPad({ value, onChange, disabled }: NumberPadProps) {
   const handleDigit = (d: string) => {
     if (disabled) return;
     const next = (value + d).slice(-3); // up to 3 chars to allow "100"
@@ -45,16 +43,9 @@ export function NumberPad({ value, onChange, onSubmit, disabled, submitting }: N
       <PadButton
         onClick={handleDel}
         disabled={disabled}
-        className="col-span-2 bg-gray-200 text-gray-900 hover:bg-gray-300 text-2xl"
+        className="col-span-5 bg-gray-200 text-gray-900 hover:bg-gray-300 text-2xl"
       >
         ⌫ Del
-      </PadButton>
-      <PadButton
-        onClick={onSubmit}
-        disabled={disabled || value === '' || submitting}
-        className="col-span-3 bg-gauge-accent text-white hover:bg-red-700 text-3xl font-black disabled:bg-gray-400"
-      >
-        {submitting ? '送信中…' : 'GO'}
       </PadButton>
     </div>
   );
