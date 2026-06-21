@@ -2,7 +2,7 @@
   "name": "husen",
   "version": "0.1.0",
   "private": true,
-  "description": "パーセントバルーン 学部対抗ゲームシステム",
+  "description": "近大パーセントバルーン 学部対抗ゲームシステム",
   "scripts": {
     "dev": "pnpm -r --parallel run dev",
     "dev:server": "pnpm --filter @husen/server dev",

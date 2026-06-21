@@ -10,8 +10,8 @@ const noto = Noto_Sans_JP({
 });
 
 export const metadata: Metadata = {
-  title: 'パーセントバルーン',
-  description: '学部対抗 パーセントバルーン ゲームシステム',
+  title: '近大パーセントバルーン',
+  description: '近大パーセントバルーン 学部対抗ゲームシステム',
 };
 
 export const viewport: Viewport = {

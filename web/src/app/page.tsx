@@ -4,7 +4,7 @@ export default function Home() {
   return (
     <main className="display-bg min-h-screen flex flex-col items-center justify-center p-8">
       <div className="bg-white/95 rounded-3xl shadow-2xl px-10 py-12 max-w-2xl w-full text-center">
-        <h1 className="text-4xl font-black text-sky-deep mb-2">🎈 パーセントバルーン</h1>
+        <h1 className="text-4xl font-black text-sky-deep mb-2">🎈 近大パーセントバルーン</h1>
         <p className="text-lg text-gray-600 mb-8">学部対抗ゲームシステム</p>
 
         <div className="grid gap-4">

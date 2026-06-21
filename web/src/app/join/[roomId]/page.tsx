@@ -6,6 +6,7 @@ import { KINDAI_STUDENT_COUNCIL_TEAMS } from '@husen/shared';
 import type { QuestionPayload, RevealPayload, RoomSnapshot } from '@husen/shared';
 import { useSocket } from '@/hooks/useSocket';
 import { NumberPad } from '@/components/NumberPad';
+import { QuestionCountdown, useQuestionCountdown } from '@/components/QuestionCountdown';
 import { RemainingBalloon } from '@/components/RemainingBalloon';
 import { unlockAudio } from '@/lib/sounds';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -20,18 +21,18 @@ export default function JoinRoomPage() {
   const { socket, connected } = useSocket();
 
   const [teamName, setTeamName] = useState('');
+  const [confirmingTeam, setConfirmingTeam] = useState<string | null>(null);
+  const [joining, setJoining] = useState(false);
   const [joinedTeam, setJoinedTeam] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<RoomSnapshot | null>(null);
   const [question, setQuestion] = useState<QuestionPayload | null>(null);
   const [reveal, setReveal] = useState<RevealPayload | null>(null);
   const [answer, setAnswer] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const answerRef = useRef('');
   const [error, setError] = useState<string | null>(null);
-  const [shake, setShake] = useState(false);
   const [pendingReveal, setPendingReveal] = useState<RevealPayload | null>(null);
   const pendingRevealRef = useRef<RevealPayload | null>(null);
   const activeQuestionIndexRef = useRef<number | null>(null);
-  const submitInFlightRef = useRef(false);
 
   // Restore previous join after refresh
   useEffect(() => {
@@ -49,8 +50,6 @@ export default function JoinRoomPage() {
         if (!res?.ok) {
           setError(res?.error ?? '再接続失敗');
           setJoinedTeam(null);
-          submitInFlightRef.current = false;
-          setSubmitting(false);
           return;
         }
         if (res.resumeToken) {
@@ -75,8 +74,14 @@ export default function JoinRoomPage() {
     if (!socket) return;
     const onRoom = (snap: RoomSnapshot) => {
       setSnapshot(snap);
-      if (snap.phase === 'answering' || snap.phase === 'waiting') {
+      if (
+        snap.phase === 'reading' ||
+        snap.phase === 'answering' ||
+        snap.phase === 'waiting'
+      ) {
         const snapshotQuestion = snap.currentQuestion;
+        const questionStartedAt = snap.questionStartedAt;
+        const answerDeadline = snap.answerDeadline;
         if (snapshotQuestion) {
           setQuestion((currentQuestion) => {
             if (
@@ -89,18 +94,22 @@ export default function JoinRoomPage() {
             return {
               questionIndex: snap.questionIndex,
               questionText: snapshotQuestion.text,
+              imageUrl: snapshotQuestion.imageUrl,
               totalQuestions: snap.totalQuestions,
+              questionStartedAt,
+              answerDeadline,
             };
           });
         }
 
-        // `room:updated` is emitted for every team's submit/join/disconnect.
+        // `room:updated` is emitted for every team's input/join/disconnect.
         // Only clear this device's draft when the actual question changes.
         if (activeQuestionIndexRef.current !== snap.questionIndex) {
           activeQuestionIndexRef.current = snap.questionIndex;
           pendingRevealRef.current = null;
           setPendingReveal(null);
           setReveal(null);
+          answerRef.current = '';
           setAnswer('');
         }
       } else if (snap.phase === 'revealing') {
@@ -124,24 +133,45 @@ export default function JoinRoomPage() {
       pendingRevealRef.current = null;
       setPendingReveal(null);
       setReveal(null);
-      if (questionChanged) setAnswer('');
+      if (questionChanged) {
+        answerRef.current = '';
+        setAnswer('');
+      }
     };
     const onReveal = (r: RevealPayload) => {
       pendingRevealRef.current = r;
       setPendingReveal(r);
     };
+    const onFinalizeRequested = ({ questionIndex }: { questionIndex: number }) => {
+      if (!joinedTeam || activeQuestionIndexRef.current !== questionIndex) return;
+      const currentAnswer = answerRef.current;
+      socket.emit(
+        'answer:finalize',
+        {
+          roomId,
+          teamName: joinedTeam,
+          questionIndex,
+          answer: currentAnswer === '' ? null : Number(currentAnswer),
+        },
+        (res) => {
+          if (!res?.ok) setError(res?.error ?? '最終回答を確定できませんでした');
+        }
+      );
+    };
     const onErr = (p: { code: string; message: string }) => setError(p.message);
     socket.on('room:updated', onRoom);
     socket.on('game:question', onQuestion);
     socket.on('game:reveal', onReveal);
+    socket.on('answer:finalize_requested', onFinalizeRequested);
     socket.on('error:message', onErr);
     return () => {
       socket.off('room:updated', onRoom);
       socket.off('game:question', onQuestion);
       socket.off('game:reveal', onReveal);
+      socket.off('answer:finalize_requested', onFinalizeRequested);
       socket.off('error:message', onErr);
     };
-  }, [socket, joinedTeam]);
+  }, [socket, joinedTeam, roomId]);
 
   const me = useMemo(
     () => snapshot?.teams.find((t) => t.name === joinedTeam),
@@ -163,33 +193,25 @@ export default function JoinRoomPage() {
   const teamOptions = snapshot?.allowedTeams.length
     ? snapshot.allowedTeams
     : [...KINDAI_STUDENT_COUNCIL_TEAMS];
+  const phase = snapshot?.phase;
+  const activeDeadline = question?.answerDeadline ?? snapshot?.answerDeadline;
+  const countdown = useQuestionCountdown(activeDeadline);
+  const answerWindowClosed = phase !== 'answering' || countdown.expired;
 
-  const submit = () => {
-    if (!socket || !joinedTeam) return;
-    if (submitInFlightRef.current) return;
-    const value = Number(answer);
-    if (!Number.isFinite(value) || value < 0 || value > 100) {
-      setError('0〜100の整数で入力してください');
-      setShake(true);
-      window.setTimeout(() => setShake(false), 400);
-      return;
-    }
-    submitInFlightRef.current = true;
-    setSubmitting(true);
+  const updateCurrentAnswer = (nextAnswer: string) => {
+    answerRef.current = nextAnswer;
+    setAnswer(nextAnswer);
+    if (!socket || !joinedTeam || answerWindowClosed) return;
     setError(null);
-    const timeout = window.setTimeout(() => {
-      submitInFlightRef.current = false;
-      setSubmitting(false);
-      setError('送信確認が取れませんでした。接続を確認してもう一度押してください');
-    }, 6000);
     socket.emit(
-      'answer:submit',
-      { roomId, teamName: joinedTeam, answer: value },
+      'answer:update',
+      {
+        roomId,
+        teamName: joinedTeam,
+        answer: nextAnswer === '' ? null : Number(nextAnswer),
+      },
       (res) => {
-        window.clearTimeout(timeout);
-        submitInFlightRef.current = false;
-        setSubmitting(false);
-        if (!res?.ok) setError(res?.error ?? '送信に失敗しました');
+        if (!res?.ok) setError(res?.error ?? '回答を更新できませんでした');
       }
     );
   };
@@ -200,12 +222,16 @@ export default function JoinRoomPage() {
     if (!trimmed) return;
     void unlockAudio();
     setError(null);
+    setJoining(true);
     const resumeToken = window.localStorage.getItem(resumeTokenStorageKey(roomId, trimmed));
     socket.emit('team:join', { roomId, teamName: trimmed, resumeToken: resumeToken ?? undefined }, (res) => {
+      setJoining(false);
       if (!res?.ok) {
         setError(res?.error ?? '参加できませんでした');
+        setConfirmingTeam(null);
         return;
       }
+      setConfirmingTeam(null);
       setJoinedTeam(trimmed);
       window.localStorage.setItem(joinedTeamStorageKey(roomId), trimmed);
       if (res.resumeToken) {
@@ -237,7 +263,10 @@ export default function JoinRoomPage() {
                 <button
                   key={team}
                   type="button"
-                  onClick={() => setTeamName(team)}
+                  onClick={() => {
+                    setTeamName(team);
+                    setConfirmingTeam(team);
+                  }}
                   className={`rounded-xl border-2 px-2 py-3 text-sm font-black transition ${
                     selected
                       ? 'border-gauge-accent bg-red-50 text-gauge-accent shadow'
@@ -254,7 +283,7 @@ export default function JoinRoomPage() {
           </div>
 
           <button
-            onClick={() => join(teamName)}
+            onClick={() => setConfirmingTeam(teamName)}
             disabled={!connected || !teamName.trim()}
             className="w-full bg-gauge-accent disabled:bg-gray-300 hover:bg-red-700 text-white text-xl font-black py-4 rounded-xl"
           >
@@ -281,14 +310,59 @@ export default function JoinRoomPage() {
             {connected ? '🟢 接続中' : '🟡 接続待ち'}
           </p>
         </div>
+
+        <AnimatePresence>
+          {confirmingTeam && (
+            <motion.div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-sky-deep/75 p-4 backdrop-blur-sm"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              <motion.div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="team-confirmation-title"
+                initial={{ opacity: 0, scale: 0.94, y: 12 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.96, y: 8 }}
+                className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-2xl"
+              >
+                <h2 id="team-confirmation-title" className="text-xl font-black text-sky-deep">
+                  参加チームの確認
+                </h2>
+                <div className="my-5 rounded-xl border-2 border-sky-deep/20 bg-sky-50 px-4 py-5 text-lg font-black text-sky-deep">
+                  {confirmingTeam}
+                </div>
+                <p className="mb-5 text-sm text-gray-600">このチームで参加しますか？</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingTeam(null)}
+                    disabled={joining}
+                    className="rounded-xl border-2 border-gray-300 py-3 font-black text-gray-600 disabled:opacity-50"
+                  >
+                    戻る
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => join(confirmingTeam)}
+                    disabled={!connected || joining}
+                    className="rounded-xl bg-gauge-accent py-3 font-black text-white disabled:bg-gray-300"
+                  >
+                    {joining ? '参加中…' : 'このチームで参加'}
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </main>
     );
   }
 
   // ─── post-join screen ─────────────────────────────────────────────────
-  const phase = snapshot?.phase;
   const eliminated = me?.eliminated;
-  const hasAnswered = me?.hasAnswered;
   const predictionValue =
     myResult !== undefined
       ? myResult.answer >= 0
@@ -366,53 +440,62 @@ export default function JoinRoomPage() {
         </Card>
       )}
 
-      {(phase === 'answering' || phase === 'waiting') && question && !reveal && (
+      {(phase === 'reading' || phase === 'answering' || phase === 'waiting') &&
+        question &&
+        !reveal && (
         <>
           <Card>
             <div className="text-xs text-gray-500 mb-1">
               問題 {question.questionIndex + 1} / {question.totalQuestions}
             </div>
             <div className="text-lg font-bold text-sky-deep">{question.questionText}</div>
+            <div className="mt-3">
+              <QuestionCountdown
+                deadline={activeDeadline}
+                pending={phase === 'reading'}
+                closed={phase === 'waiting'}
+                compact
+              />
+            </div>
           </Card>
 
-          <Card className="text-center">
-            <div className="text-xs text-gray-500 mb-1">あなたの回答</div>
-            <motion.div
-              animate={shake ? { x: [-8, 8, -6, 6, 0] } : { x: 0 }}
-              className="input-display text-6xl font-black tabular-nums py-3 mb-3"
-            >
-              {answer === '' ? '–' : answer}
-              <span className="text-3xl ml-1">%</span>
-            </motion.div>
-          </Card>
+          {phase !== 'reading' && (
+            <Card className="text-center">
+              <div className="text-xs text-gray-500 mb-1">あなたの回答</div>
+              <motion.div
+                className="input-display text-6xl font-black tabular-nums py-3 mb-3"
+              >
+                {answer === '' ? '–' : answer}
+                <span className="text-3xl ml-1">%</span>
+              </motion.div>
+            </Card>
+          )}
 
-          {eliminated ? (
+          {phase === 'reading' ? (
+            <Card>
+              <div className="py-6 text-center">
+                <div className="mb-1 text-xl font-black text-sky-deep">問題を読み上げています</div>
+                <p className="text-sm text-gray-500">管理者が回答を開始するまでお待ちください</p>
+              </div>
+            </Card>
+          ) : eliminated ? (
             <Card>
               <div className="text-center py-6 text-gauge-accent font-black">
                 💥 残念！既に脱落しています
               </div>
             </Card>
-          ) : hasAnswered ? (
+          ) : answerWindowClosed ? (
             <Card>
-              <div className="text-center py-6">
-                <div className="text-2xl font-black text-emerald-600 mb-1">✅ 送信済み</div>
-                <p className="text-gray-500 text-sm">
-                  スクリーンを見て正解を待ちましょう！
-                </p>
-                <p className="text-xs text-gray-400 mt-2">
-                  回答済み:{' '}
-                  {snapshot?.teams.filter((t) => t.hasAnswered && !t.eliminated).length ?? 0} /{' '}
-                  {snapshot?.teams.filter((t) => !t.eliminated).length ?? 0}
-                </p>
+              <div className="py-6 text-center">
+                <div className="mb-1 text-2xl font-black text-gauge-accent">回答受付終了</div>
+                <p className="text-sm text-gray-500">正解発表をお待ちください</p>
               </div>
             </Card>
           ) : (
             <NumberPad
               value={answer}
-              onChange={setAnswer}
-              onSubmit={submit}
-              disabled={false}
-              submitting={submitting}
+              onChange={updateCurrentAnswer}
+              disabled={answerWindowClosed}
             />
           )}
         </>

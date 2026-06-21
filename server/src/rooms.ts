@@ -1,5 +1,9 @@
 import { customAlphabet } from 'nanoid';
-import { KINDAI_STUDENT_COUNCIL_TEAMS, TEAM_NAME_MAX_LENGTH } from '@husen/shared';
+import {
+  KINDAI_STUDENT_COUNCIL_TEAMS,
+  QUESTION_TIME_LIMIT_MS,
+  TEAM_NAME_MAX_LENGTH,
+} from '@husen/shared';
 import type {
   AnswerResult,
   GamePhase,
@@ -34,6 +38,7 @@ const TEAM_COLOR_PALETTE = [
 ];
 
 const DEFAULT_ALLOWED_TEAMS = [...KINDAI_STUDENT_COUNCIL_TEAMS];
+export const FINAL_ANSWER_SYNC_GRACE_MS = 800;
 
 export interface InternalRoom {
   roomId: string;
@@ -48,6 +53,10 @@ export interface InternalRoom {
   lastActivityAt: Date;
   adminSocketIds: Set<string>;
   displaySocketIds: Set<string>;
+  questionStartedAt?: number;
+  answerDeadline?: number;
+  answerDeadlineTimer?: ReturnType<typeof setTimeout>;
+  answerFinalizationTimer?: ReturnType<typeof setTimeout>;
   lastReveal?: RevealPayload;
   revealReadyTimer?: ReturnType<typeof setTimeout>;
 }
@@ -120,6 +129,12 @@ export function getRoom(roomId: string): InternalRoom | undefined {
 }
 
 export function deleteRoom(roomId: string) {
+  const room = rooms.get(roomId);
+  if (room) {
+    clearAnswerDeadlineTimer(room);
+    clearAnswerFinalizationTimer(room);
+    clearRevealReadyTimer(room);
+  }
   rooms.delete(roomId);
 }
 
@@ -204,10 +219,40 @@ export function startGame(room: InternalRoom): { ok: boolean; error?: string } {
   if (room.questions.length === 0) return { ok: false, error: '問題が登録されていません' };
   clearRevealReadyTimer(room);
   room.questionIndex = 0;
-  room.phase = 'answering';
   room.lastReveal = undefined;
-  resetRoundAnswers(room);
+  prepareQuestion(room);
   return { ok: true };
+}
+
+export function startAnswering(room: InternalRoom): { ok: boolean; error?: string } {
+  if (room.phase !== 'reading') {
+    return { ok: false, error: '問題の読み上げ中ではありません' };
+  }
+  beginAnsweringRound(room);
+  return { ok: true };
+}
+
+export function scheduleAnswerDeadline(room: InternalRoom, onExpired: () => void) {
+  clearAnswerDeadlineTimer(room);
+  const delay = Math.max(0, (room.answerDeadline ?? Date.now()) - Date.now());
+  room.answerDeadlineTimer = setTimeout(() => {
+    room.answerDeadlineTimer = undefined;
+    if (!closeAnsweringIfExpired(room, room.answerDeadline ?? Date.now())) return;
+    onExpired();
+  }, delay);
+}
+
+export function closeAnsweringIfExpired(room: InternalRoom, now = Date.now()): boolean {
+  if (
+    room.phase !== 'answering' ||
+    room.answerDeadline === undefined ||
+    now < room.answerDeadline
+  ) {
+    return false;
+  }
+  room.phase = 'waiting';
+  clearAnswerDeadlineTimer(room);
+  return true;
 }
 
 export function updateAllowedTeams(
@@ -253,6 +298,10 @@ export function submitAnswer(
 
   const value = clampPercent(answer);
 
+  if (closeAnsweringIfExpired(room)) {
+    return { ok: false, error: '回答時間が終了しました' };
+  }
+
   if (room.phase !== 'answering') {
     if (room.phase === 'waiting' && team.hasAnswered && team.currentAnswer === value) {
       return { ok: true, allAnswered: true };
@@ -273,8 +322,82 @@ export function submitAnswer(
   const allAnswered = activeTeams.every((t) => t.hasAnswered);
   if (allAnswered) {
     room.phase = 'waiting';
+    clearAnswerDeadlineTimer(room);
   }
   return { ok: true, allAnswered };
+}
+
+export function updateAnswer(
+  room: InternalRoom,
+  teamName: string,
+  answer: number | null
+): { ok: boolean; error?: string } {
+  const team = room.teams.get(teamKey(teamName));
+  if (!team) return { ok: false, error: 'チームが見つかりません' };
+  if (room.phase !== 'answering') {
+    return { ok: false, error: '現在は回答受付中ではありません' };
+  }
+  if (team.eliminated) return { ok: false, error: 'チームは脱落済みです' };
+
+  if (answer === null) {
+    team.currentAnswer = undefined;
+    team.hasAnswered = false;
+    return { ok: true };
+  }
+  if (!Number.isFinite(answer) || answer < 0 || answer > 100) {
+    return { ok: false, error: '0〜100の整数で入力してください' };
+  }
+
+  team.currentAnswer = clampPercent(answer);
+  team.hasAnswered = true;
+  return { ok: true };
+}
+
+export function finalizeAnswer(
+  room: InternalRoom,
+  teamName: string,
+  questionIndex: number,
+  answer: number | null
+): { ok: boolean; error?: string } {
+  if (room.phase !== 'waiting' || room.questionIndex !== questionIndex) {
+    return { ok: false, error: 'この問題の回答は確定できません' };
+  }
+  const team = room.teams.get(teamKey(teamName));
+  if (!team) return { ok: false, error: 'チームが見つかりません' };
+  if (team.eliminated) return { ok: false, error: 'チームは脱落済みです' };
+
+  if (answer === null) {
+    team.currentAnswer = undefined;
+    team.hasAnswered = false;
+    return { ok: true };
+  }
+  if (!Number.isFinite(answer) || answer < 0 || answer > 100) {
+    return { ok: false, error: '0〜100の整数で入力してください' };
+  }
+
+  team.currentAnswer = clampPercent(answer);
+  team.hasAnswered = true;
+  return { ok: true };
+}
+
+export function scheduleAnswerFinalization(
+  room: InternalRoom,
+  onReady: () => void,
+  delayMs = FINAL_ANSWER_SYNC_GRACE_MS
+): { ok: boolean; error?: string } {
+  if (room.phase !== 'waiting') {
+    return { ok: false, error: '正解発表できるフェーズではありません' };
+  }
+  if (room.answerFinalizationTimer) {
+    return { ok: false, error: '最終回答を取得中です' };
+  }
+
+  room.answerFinalizationTimer = setTimeout(() => {
+    room.answerFinalizationTimer = undefined;
+    if (room.phase !== 'waiting') return;
+    onReady();
+  }, delayMs);
+  return { ok: true };
 }
 
 export function revealAnswer(room: InternalRoom): {
@@ -282,7 +405,7 @@ export function revealAnswer(room: InternalRoom): {
   error?: string;
   payload?: RevealPayload;
 } {
-  if (room.phase !== 'waiting' && room.phase !== 'answering') {
+  if (room.phase !== 'waiting') {
     return { ok: false, error: '正解発表できるフェーズではありません' };
   }
   const question = room.questions[room.questionIndex];
@@ -340,6 +463,8 @@ export function revealAnswer(room: InternalRoom): {
     });
   }
 
+  clearAnswerDeadlineTimer(room);
+  clearAnswerFinalizationTimer(room);
   clearRevealReadyTimer(room);
   room.phase = 'revealing';
   const payload: RevealPayload = {
@@ -387,13 +512,14 @@ export function nextQuestion(room: InternalRoom): { ok: boolean; error?: string;
   }
 
   room.questionIndex += 1;
-  room.phase = 'answering';
   room.lastReveal = undefined;
-  resetRoundAnswers(room);
+  prepareQuestion(room);
   return { ok: true, finished: false };
 }
 
 export function endGame(room: InternalRoom): { ok: boolean } {
+  clearAnswerDeadlineTimer(room);
+  clearAnswerFinalizationTimer(room);
   clearRevealReadyTimer(room);
   room.phase = 'finished';
   return { ok: true };
@@ -455,6 +581,9 @@ export function getSnapshot(room: InternalRoom, opts?: { includeAnswers?: boolea
     questionIndex: room.questionIndex,
     totalQuestions: room.questions.length,
     startBalloons: room.startBalloons,
+    questionStartedAt: room.questionStartedAt,
+    answerDeadline: room.answerDeadline,
+    finalizingAnswers: room.answerFinalizationTimer !== undefined,
     currentQuestion,
   };
 
@@ -477,6 +606,9 @@ export function cleanupStaleRooms(maxAgeMs = 2 * 60 * 60 * 1000): number {
   let removed = 0;
   for (const [id, room] of rooms) {
     if (now - room.lastActivityAt.getTime() > maxAgeMs) {
+      clearAnswerDeadlineTimer(room);
+      clearAnswerFinalizationTimer(room);
+      clearRevealReadyTimer(room);
       rooms.delete(id);
       removed += 1;
     }
@@ -493,6 +625,24 @@ function resetRoundAnswers(room: InternalRoom) {
   }
 }
 
+function prepareQuestion(room: InternalRoom) {
+  clearAnswerDeadlineTimer(room);
+  clearAnswerFinalizationTimer(room);
+  room.phase = 'reading';
+  room.questionStartedAt = undefined;
+  room.answerDeadline = undefined;
+  resetRoundAnswers(room);
+}
+
+function beginAnsweringRound(room: InternalRoom) {
+  clearAnswerDeadlineTimer(room);
+  const now = Date.now();
+  room.phase = 'answering';
+  room.questionStartedAt = now;
+  room.answerDeadline = now + QUESTION_TIME_LIMIT_MS;
+  resetRoundAnswers(room);
+}
+
 function normalizeTeamNames(names: readonly string[] | undefined): string[] {
   return (names ?? [])
     .map((name) => String(name ?? '').trim())
@@ -503,6 +653,18 @@ function clearRevealReadyTimer(room: InternalRoom) {
   if (!room.revealReadyTimer) return;
   clearTimeout(room.revealReadyTimer);
   room.revealReadyTimer = undefined;
+}
+
+function clearAnswerDeadlineTimer(room: InternalRoom) {
+  if (!room.answerDeadlineTimer) return;
+  clearTimeout(room.answerDeadlineTimer);
+  room.answerDeadlineTimer = undefined;
+}
+
+function clearAnswerFinalizationTimer(room: InternalRoom) {
+  if (!room.answerFinalizationTimer) return;
+  clearTimeout(room.answerFinalizationTimer);
+  room.answerFinalizationTimer = undefined;
 }
 
 function clampPercent(v: number) {
